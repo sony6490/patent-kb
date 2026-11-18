@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>patent-kb · 专利项目知识库</title>
+<style>
+:root{
+  --bg:#14161a;--bg2:#1c1f26;--bg3:#242832;--border:#333a46;
+  --text:#e8eaf0;--text2:#9aa3b2;--text3:#6b7382;
+  --accent:#4f8cff;--accent2:#3a6fd8;--green:#34c77b;--yellow:#e6b450;--red:#e05c5c;
+  --radius:10px;--mono:Consolas,'Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Microsoft YaHei',sans-serif;font-size:14px}
+button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:14px;background:var(--accent);color:#fff}
+button:hover{background:var(--accent2)}
+button.ghost{background:var(--bg3);color:var(--text2)}
+button.ghost:hover{background:var(--border);color:var(--text)}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,textarea,select{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:14px;width:100%}
+input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.topbar .logo{font-weight:700;font-size:16px;color:var(--accent)}
+.topbar .kb{color:var(--text2);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar .usage{color:var(--text2);font-size:12px;white-space:nowrap}
+.tabs{display:flex;gap:4px;padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.tabs .tab{padding:8px 22px;border-radius:6px 6px 0 0;color:var(--text2);cursor:pointer;background:none;font-size:14px;border:none}
+.tabs .tab.active{background:var(--bg);color:var(--accent);font-weight:600}
+.page{display:none;padding:20px;max-width:1100px;margin:0 auto}
+.page.active{display:block}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.card h3{font-size:14px;color:var(--text);margin-bottom:10px}
+.hint{color:var(--text3);font-size:12px;margin-top:6px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label.fld{display:block;margin-bottom:12px}
+label.fld span{display:block;color:var(--text2);font-size:12px;margin-bottom:5px}
+/* 徽标 */
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;margin-left:6px;vertical-align:middle}
+.badge.ok{background:rgba(52,199,123,.15);color:var(--green)}
+.badge.inf{background:rgba(230,180,80,.15);color:var(--yellow)}
+.badge.ext{background:var(--bg3);color:var(--text2)}
+.badge.err{background:rgba(224,92,92,.15);color:var(--red)}
+/* 检索/分析结果 */
+.hit{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+.hit .head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.hit .fname{font-weight:600;color:var(--text);cursor:pointer}
+.hit .fpath{color:var(--text3);font-size:12px}
+.hit .anchor{color:var(--text2);font-size:12px}
+.snippet{color:var(--text2);line-height:1.6;font-size:13px;word-break:break-all}
+.snippet b{color:var(--accent);font-weight:600}
+.actions{margin-top:8px;display:flex;gap:8px}
+.actions button{padding:4px 12px;font-size:12px}
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:5px 12px;cursor:pointer;font-size:13px}
+.chip:hover{border-color:var(--accent)}
+.chip .verified-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+/* 检索式 */
+.querybox{background:#101216;border:1px solid var(--border);border-radius:6px;padding:12px;font-family:var(--mono);font-size:13px;line-height:1.6;word-break:break-all;position:relative}
+.querybox button.copy{position:absolute;top:8px;right:8px;padding:3px 10px;font-size:12px}
+/* 分类卡片 */
+.cls-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+.cls-card .code{font-family:var(--mono);font-weight:700;color:var(--accent);cursor:pointer}
+.cls-card .expl{color:var(--text2);font-size:13px;margin-top:4px;line-height:1.5}
+/* 来源浮层 */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:50;align-items:center;justify-content:center;padding:20px}
+.modal-mask.show{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);max-width:720px;width:100%;max-height:80vh;display:flex;flex-direction:column}
+.modal .m-head{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:10px}
+.modal .m-head .t{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal .m-body{padding:16px;overflow-y:auto;white-space:pre-wrap;line-height:1.7;font-size:13px;color:var(--text2);word-break:break-all}
+.modal .m-foot{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px}
+/* 向导 */
+.wizard{max-width:640px;margin:40px auto}
+.wizard .step-ind{display:flex;gap:8px;margin-bottom:24px}
+.wizard .step-ind span{flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--bg3);color:var(--text3);font-size:12px}
+.wizard .step-ind span.on{background:var(--accent);color:#fff}
+/* 浏览页 */
+.browse-wrap{display:flex;gap:16px;align-items:flex-start}
+.tree{min-width:260px;max-width:340px;flex:1}
+.tree .dir{color:var(--text);cursor:pointer;padding:5px 8px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree .dir:hover{background:var(--bg3)}
+.tree .dir.back{color:var(--accent)}
+.filelist{flex:2;min-width:0}
+.frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:5px}
+.frow:hover{background:var(--bg3)}
+.frow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .sz{color:var(--text3);font-size:12px}
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
+th{color:var(--text2);font-size:12px}
+td.err{color:var(--red);font-size:12px}
+.bar{height:14px;background:var(--bg3);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.section-title{margin:22px 0 10px;font-size:15px;font-weight:600;color:var(--text)}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:r 1s linear infinite;vertical-align:-3px;margin-right:8px}
+@keyframes r{to{transform:rotate(360deg)}}
+.est-bar{background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.3);border-radius:8px;padding:10px 14px;color:var(--text2);font-size:13px;margin:10px 0;display:none}
+mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;padding:0 1px}
+</style>
+</head>
+<body>
+
+<!-- ====== 向导 ====== -->
+<div id="wizard" class="wizard" style="display:none">
+  <div class="step-ind"><span id="ws1" class="on">① 选择知识库文件夹</span><span id="ws2">② 配置大模型 API</span><span id="ws3">③ 完成设置</span></div>
+  <div class="card" id="wstep1">
+    <h3>选择本地知识库文件夹</h3>
+    <label class="fld"><span>文件夹绝对路径（如 D:\patents\项目A）</span>
+      <input id="w-kbpath" placeholder="D:\patents\项目A">
+    </label>
+    <div class="row">
+      <button onclick="previewKb()">预览可索引文件</button>
+    </div>
+    <div id="w-preview" class="hint" style="margin-top:12px"></div>
+    <div class="row" style="margin-top:16px">
+      <button onclick="wizNext()">下一步</button>
+    </div>
+    <div class="hint">patent-kb 将在该文件夹下创建 .kbindex/ 索引库（随文件夹整体迁移，删除即可重建）。</div>
+  </div>
+  <div class="card" id="wstep2" style="display:none">
+    <h3>配置大模型 API（OpenAI 兼容）</h3>
+    <label class="fld"><span>Base URL</span><input id="w-baseurl" placeholder="https://api.deepseek.com/v1"></label>
+    <label class="fld"><span>API Key</span><input id="w-apikey" type="password" placeholder="sk-..."></label>
+    <div class="row" style="margin-bottom:6px">
+      <button class="ghost" onclick="fetchModels()">获取模型列表</button>
+      <span class="hint">获取后点击 Model 输入框可下拉选择</span>
+    </div>
+    <label class="fld"><span>Model（主力模型）</span><input id="w-model" list="dl-models" placeholder="deepseek-chat"></label>
+    <label class="fld"><span>Lite Model（可选，低成本轻量模型）</span><input id="w-litemodel" list="dl-models" placeholder="留空则与主力模型相同"></label>
+    <datalist id="dl-models"></datalist>
+    <div class="row">
+      <button class="ghost" onclick="testLlm()">测试连接</button>
+      <span id="w-testresult" class="hint"></span>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="ghost" onclick="wizBack()">上一步</button>
+      <button onclick="wizNext()">下一步</button>
+    </div>
+    <div class="hint">适配 DeepSeek / 硅基流动 / Kimi / 通义 / OpenAI / Ollama 等一切 OpenAI 兼容接口。Key 只保存在本机 ~/.patentkb/config.json。</div>
+  </div>
+  <div class="card" id="wstep3" style="display:none">
+    <h3>完成设置并首次索引</h3>
+    <p style="color:var(--text2);margin-bottom:14px" id="w-summary"></p>
+    <div class="row">
+      <button id="w-finish" onclick="wizFinish()">创建知识库并开始首次索引</button>
+    </div>
+    <div id="w-scanresult" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- ====== 主界面 ====== -->
+<div id="main" style="display:none">
+  <div class="topbar">
+    <span class="logo">patent-kb</span>
+    <span class="kb" id="t-kbpath"></span>
+    <span class="usage" id="t-usage"></span>
+    <button class="ghost" style="padding:4px 12px;font-size:12px" onclick="refreshTop()">刷新</button>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-p="p-search" onclick="switchTab('p-search',this)">检索</button>
+    <button class="tab" data-p="p-analyze" onclick="switchTab('p-analyze',this)">分析</button>
+    <button class="tab" data-p="p-browse" onclick="switchTab('p-browse',this)">浏览</button>
+    <button class="tab" data-p="p-settings" onclick="switchTab('p-settings',this);loadSettings()">设置</button>
+  </div>
+
+  <!-- 检索 -->
+  <div class="page active" id="p-search">
+    <div class="card">
+      <div class="row">
+        <input id="s-q" placeholder="输入关键词，如：无线充电 线圈 定位（检索零成本）" style="flex:1" onkeydown="if(event.key==='Enter')doSearch()">
+        <button onclick="doSearch()">检索</button>
+      </div>
+      <div class="hint">多词按 AND 匹配，无结果自动降级 OR。中文按 jieba 分词。</div>
+    </div>
+    <div id="s-results"></div>
+  </div>
+
+  <!-- 分析 -->
+  <div class="page" id="p-analyze">
+    <div class="card">
+      <h3>新需求分析（基于知识库历史资料）</h3>
+      <textarea id="a-text" rows="4" placeholder="描述新需求，如：电动汽车无线充电的线圈定位误差补偿方案，需要检索相关专利。"></textarea>
+      <div class="row" style="margin-top:10px">
+        <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:13px">
+          <input type="checkbox" id="a-lite" style="width:auto"> 使用 Lite 模型（低成本）
+        </label>
+        <button onclick="doEstimate()">预估成本</button>
+        <button id="a-gobtn" onclick="doAnalyze()" disabled>确认分析</button>
+      </div>
+      <div class="est-bar" id="a-est"></div>
+      <div class="hint">每次分析调 LLM 一次；相同需求重复分析命中缓存，零费用。生成项绿色=原文验证，黄色=AI 推断（依据可点击追溯）。检索式按智慧芽(PatSnap)高级检索语法生成。</div>
+    </div>
+    <div id="a-results" style="display:none">
+      <div class="card"><h3>① 关键词扩展</h3><div class="chips" id="a-keywords"></div></div>
+      <div class="card"><h3>② IPC / CPC 分类号扩展</h3><div id="a-classes"></div></div>
+      <div class="card"><h3>③ 专利检索式（智慧芽语法）</h3><div id="a-query"></div></div>
+      <div class="hint" id="a-usage"></div>
+    </div>
+  </div>
+
+  <!-- 浏览 -->
+  <div class="page" id="p-browse">
+    <div class="browse-wrap">
+      <div class="tree card" id="b-tree"></div>
+      <div class="filelist card" id="b-files"></div>
+    </div>
+  </div>
+
+  <!-- 设置 -->
+  <div class="page" id="p-settings">
+    <div class="card">
+      <h3>大模型 API</h3>
+      <label class="fld"><span>Base URL</span><input id="c-baseurl"></label>
+      <label class="fld"><span>API Key（留空/含***表示不变）</span><input id="c-apikey" type="password" placeholder="保持不变"></label>
+      <label class="fld"><span>Model</span><input id="c-model" list="dl-models"></label>
+      <label class="fld"><span>Lite Model</span><input id="c-litemodel" list="dl-models"></label>
+      <div class="row" style="margin-bottom:10px">
+        <button class="ghost" onclick="fetchModelsSettings()">获取模型列表</button>
+      </div>
+      <button onclick="saveLlmCfg()">保存 LLM 配置</button>
+      <span class="hint" id="c-saved" style="margin-left:10px"></span>
+    </div>
+    <div class="card">
+      <h3>成本控制</h3>
+      <label class="fld"><span>每日 LLM 调用上限（缓存命中不计）</span><input id="c-limit" type="number"></label>
+      <label class="fld"><span>单次 token 预警阈值（超过则确认后执行）</span><input id="c-warn" type="number"></label>
+      <button onclick="saveCostCfg()">保存成本配置</button>
+    </div>
+    <div class="card">
+      <h3>索引管理</h3>
+      <div class="row">
+        <button class="ghost" onclick="doScan(false)">增量扫描</button>
+        <button class="ghost" onclick="doScan(true)">全量重建</button>
+        <span class="hint" id="c-scanstat"></span>
+      </div>
+      <div class="hint">按 mtime+size 增量对比，只解析变化的文件（零重复解析成本）。</div>
+    </div>
+    <div class="card">
+      <h3>失败 / 跳过文件</h3>
+      <div id="c-failures"></div>
+    </div>
+    <div class="card">
+      <h3>用量统计（近 7 日）</h3>
+      <div id="c-usage"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 来源浮层 -->
+<div class="modal-mask" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="m-head">
+      <span class="t" id="m-title"></span>
+      <button class="ghost" style="padding:3px 10px;font-size:12px" onclick="closeModal()">✕</button>
+    </div>
+    <div class="m-body" id="m-body"></div>
+    <div class="m-foot" id="m-foot"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = (p, opt) => {
+  opt = opt || {};
+  if (opt.body) {
+    opt.headers = Object.assign({}, opt.headers, {'Content-Type': 'application/json'});
+  }
+  return fetch('/api' + p, opt).then(async r => {
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      let msg = d.detail || r.statusText || ('HTTP ' + r.status);
+      if (typeof msg === 'object') {
+        try { msg = (msg[0] && msg[0].msg) ? msg[0].msg : JSON.stringify(msg); }
+        catch(_) { msg = 'HTTP ' + r.status; }
+      }
+      throw new Error(msg);
+    }
+    return d;
+  });
+};
+const esc = s => (s??'').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtSize = n => n>1048576 ? (n/1048576).toFixed(1)+' MB' : n>1024 ? (n/1024).toFixed(1)+' KB' : n+' B';
+let CURRENT_FILE_ID = null;
+
+// ---------- init ----------
+async function boot(){
+  try{
+    const st = await api('/wizard/status');
+    if (!st.initialized){ $('wizard').style.display='block'; $('main').style.display='none'; return; }
+  }catch(e){ $('wizard').style.display='block'; return; }
+  $('wizard').style.display='none'; $('main').style.display='block';
+  $('t-kbpath').textContent = '知识库: ' + st.kb_path;
+  refreshTop(); loadBrowse('');
+}
+boot();
+function refreshTop(){
+  api('/admin/index/status').then(s=>{
+    $('t-kbpath').textContent = $('t-kbpath').textContent.split('  [')[0] +
+      `  [索引 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped}]`;
+  }).catch(()=>{});
+}
+
+// ---------- wizard ----------
+let W = {step:1};
+function previewKb(){
+  const p = $('w-kbpath').value.trim();
+  if (!p) return alert('请输入路径');
+  api('/wizard/preview', {method:'POST', body:JSON.stringify({kb_path:p})})
+    .then(d=>{
+      $('w-preview').innerHTML = `可索引文件 <b>${d.total}</b> 个：` +
+        d.by_ext.slice(0,12).map(([e,n])=>`${esc(e)}×${n}`).join('，');
+    }).catch(e=>{ $('w-preview').innerHTML = '<span style="color:var(--red)">'+esc(e.message)+'</span>'; });
+}
+function testLlm(){
+  $('w-testresult').innerHTML = '<span class="spin"></span>测试中...';
+  api('/config/test-llm',{method:'POST', body:JSON.stringify({
+    base_url:$('w-baseurl').value.trim(), api_key:$('w-apikey').value.trim(), model:$('w-model').value.trim()
+  })}).then(d=>{
+    $('w-testresult').innerHTML = `<span style="color:var(--green)">✓ ${esc(d.model)} · ${d.latency_ms}ms</span>`;
+  }).catch(e=>{ $('w-testresult').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`; });
+}
+async function fetchModels(){
+  const base = $('w-baseurl').value.trim(), key = $('w-apikey').value.trim();
+  if (!base) return alert('请先填写 Base URL');
+  $('w-testresult').innerHTML = '<span class="spin"></span>获取模型列表...';
+  try{
+    const d = await api('/config/list-models',{method:'POST',
+      body:JSON.stringify({base_url:base, api_key:key})});
+    $('dl-models').innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join('');
+    if (d.models.length){
+      if(!$('w-model').value) $('w-model').value = d.models[0];
+      $('w-testresult').innerHTML = `<span style="color:var(--green)">✓ 获取到 ${d.models.length} 个模型，点击 Model 输入框可选</span>`;
+    } else {
+      $('w-testresult').innerHTML = '<span style="color:var(--yellow)">接口未返回模型，请手动填写</span>';
+    }
+  }catch(e){
+    $('w-testresult').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+  }
+}
+async function fetchModelsSettings(){
+  try{
+    const d = await api('/config/list-models',{method:'POST',
+      body:JSON.stringify({base_url:$('c-baseurl').value.trim(), api_key:$('c-apikey').value.trim()})});
+    $('dl-models').innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join('');
+    $('c-saved').innerHTML = `<span style="color:var(--green)">✓ ${d.models.length} 个模型已载入，点击 Model 可下拉选择</span>`;
+  }catch(e){ $('c-saved').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+function wizNext(){
+  if (W.step===1){
+    const p=$('w-kbpath').value.trim(); if(!p) return alert('请输入知识库文件夹路径');
+  } else if (W.step===2){
+    if(!$('w-baseurl').value.trim()||!$('w-apikey').value.trim()||!$('w-model').value.trim())
+      return alert('Base URL / API Key / Model 均需填写');
+  }
+  W.step++;
+  if (W.step===2){ $('ws1').classList.remove('on'); $('ws2').classList.add('on'); $('wstep1').style.display='none'; $('wstep2').style.display='block'; }
+  else if (W.step===3){
+    $('ws2').classList.remove('on'); $('ws3').classList.add('on'); $('wstep2').style.display='none'; $('wstep3').style.display='block';
+    $('w-summary').textContent = `知识库: ${$('w-kbpath').value} ｜ 模型: ${$('w-model').value}`;
+  }
+}
+function wizBack(){ W.step--; $('ws2').classList.remove('on'); $('ws1').classList.add('on');
+  if(W.step===1){ $('wstep2').style.display='none'; $('wstep1').style.display='block'; $('ws3').classList.remove('on'); } }
+async function wizFinish(){
+  $('w-finish').disabled = true; $('w-scanresult').innerHTML = '<span class="spin"></span>正在首次索引...';
+  try{
+    await api('/wizard/setup',{method:'POST', body:JSON.stringify({
+      kb_path:$('w-kbpath').value.trim(),
+      llm:{base_url:$('w-baseurl').value.trim(), api_key:$('w-apikey').value.trim(),
+           model:$('w-model').value.trim(), lite_model:$('w-litemodel').value.trim()}
+    })});
+    const rep = await api('/admin/index/scan',{method:'POST', body:JSON.stringify({full:false})});
+    $('w-scanresult').innerHTML = `✓ 索引完成：新增 ${rep.added}，更新 ${rep.updated}，失败 ${rep.failed}，跳过 ${rep.skipped}，不支持 ${rep.unsupported}`;
+    setTimeout(()=>location.reload(), 1200);
+  }catch(e){
+    $('w-scanresult').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`;
+    $('w-finish').disabled = false;
+  }
+}
+
+// ---------- tabs ----------
+function switchTab(id, btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  $(id).classList.add('active'); btn.classList.add('active');
+}
+
+// ---------- search ----------
+function hlSnippet(s){
+  return esc(s).replace(/»/g,'<mark>').replace(/«/g,'</mark>');
+}
+function anchorText(a){
+  if(!a||!a.type) return '';
+  if(a.type==='pdf') return `PDF 第 ${a.page?a.page[0]:'?'}-${a.page?a.page[1]:'?'} 页`;
+  if(a.type==='xlsx') return `${a.sheet||'表'} 第 ${a.rows?a.rows[0]:'?'}-${a.rows?a.rows[1]:'?'} 行`;
+  if(a.type==='pptx') return `Slide ${a.slide?a.slide[0]:'?'}-${a.slide?a.slide[1]:'?'}`;
+  if(a.type==='docx') return `段落 ${a.para?a.para[0]:'?'}-${a.para?a.para[1]:'?'}`;
+  if(a.type==='text') return `行 ${a.lines?a.lines[0]:'?'}-${a.lines?a.lines[1]:'?'}`;
+  if(a.type==='image'||a.filename_only) return '文件名索引';
+  return '';
+}
+async function doSearch(){
+  const q = $('s-q').value.trim(); if(!q) return;
+  $('s-results').innerHTML = '<div class="card"><span class="spin"></span>检索中...</div>';
+  try{
+    const d = await api(`/search?q=${encodeURIComponent(q)}&limit=20`);
+    if(!d.hits.length){ $('s-results').innerHTML = '<div class="card">无结果。试试减少关键词或换同义词。</div>'; return; }
+    $('s-results').innerHTML = d.hits.map(h=>`
+      <div class="hit">
+        <div class="head">
+          <span class="badge ext">${esc(h.ext||'')}</span>
+          <span class="fname" onclick="showChunk(${h.chunk_id})">${esc(h.filename)}</span>
+          <span class="anchor">${esc(anchorText(h.anchor))}</span>
+          <span class="fpath">${esc(h.rel_path)}</span>
+        </div>
+        <div class="snippet">${hlSnippet(h.snippet)}</div>
+        <div class="actions">
+          <button class="ghost" onclick="showChunk(${h.chunk_id})">查看原文</button>
+          <button class="ghost" onclick="downloadFile(${h.file_id})">下载</button>
+          <button class="ghost" onclick="revealFile(${h.file_id})">打开所在文件夹</button>
+        </div>
+      </div>`).join('');
+  }catch(e){ $('s-results').innerHTML = `<div class="card" style="color:var(--red)">${esc(e.message)}</div>`; }
+}
+function downloadFile(id){ window.open(`/api/file/download?file_id=${id}`,'_blank'); }
+async function revealFile(id){
+  try{ await api('/file/reveal',{method:'POST', body:JSON.stringify({file_id:id})}); }
+  catch(e){ alert(e.message); }
+}
+async function showChunk(chunkId){
+  try{
+    const c = await api(`/chunk/${chunkId}`);
+    openModal(`${c.filename} · ${anchorText(c.anchor)}`, c.content, c.file_id);
+  }catch(e){ alert(e.message); }
+}
+
+// ---------- analyze ----------
+let EST = null;
+async function doEstimate(){
+  const t = $('a-text').value.trim(); if(!t) return alert('请输入需求描述');
+  $('a-est').style.display='block';
+  $('a-est').innerHTML = '<span class="spin"></span>检索与估算中...';
+  try{
+    EST = await api('/analyze/estimate',{method:'POST', body:JSON.stringify({request_text:t, use_lite:$('a-lite').checked})});
+    if(!EST.has_llm){ $('a-est').innerHTML = '⚠ 尚未配置 LLM API，请先在设置页配置。'; $('a-gobtn').disabled=true; return; }
+    $('a-est').innerHTML = `预计消耗约 <b>${EST.est_tokens}</b> tokens（${EST.top_chunk_count} 个资料片段）· 今日已用 ${EST.daily_used}` +
+      (EST.need_confirm ? ' · <span style="color:var(--yellow)">⚠ 超过预警阈值，请确认</span>' : '');
+    $('a-gobtn').disabled = false;
+  }catch(e){ $('a-est').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+async function doAnalyze(){
+  const t = $('a-text').value.trim(); if(!t) return;
+  if (EST && EST.need_confirm && !confirm('本次分析预计消耗超过预警阈值，继续？')) return;
+  $('a-gobtn').disabled = true; $('a-results').style.display='none';
+  $('a-est').style.display='block'; $('a-est').innerHTML='<span class="spin"></span>LLM 分析中（缓存命中则瞬间完成）...';
+  try{
+    const r = await api('/analyze',{method:'POST', body:JSON.stringify({request_text:t, use_lite:$('a-lite').checked})});
+    renderAnalyze(r);
+  }catch(e){
+    $('a-est').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`;
+  }finally{ $('a-gobtn').disabled=false; }
+}
+function vBadge(v){ return v ? '<span class="badge ok">原文验证</span>' : '<span class="badge inf">AI 推断</span>'; }
+function srcBtns(sources, word){
+  if(!sources||!sources.length) return '';
+  return `<div class="actions">` + sources.map(s=>
+    `<button class="ghost" title="${esc(s.rel_path)}" onclick="showChunk(${s.chunk_id})">依据 ${esc(s.ref)} · ${esc(s.rel_path.split('/').pop())}</button>`
+  ).join('') + `</div>`;
+}
+function renderAnalyze(r){
+  $('a-results').style.display='block';
+  $('a-est').style.display='none';
+  $('a-keywords').innerHTML = r.keywords.length ? r.keywords.map(k=>
+    `<span class="chip" onclick="showSources(${JSON.stringify(k.sources).replace(/"/g,'&quot;')})">
+      <span class="verified-dot" style="background:${k.verified?'var(--green)':'var(--yellow)'}"></span>${esc(k.text)}${vBadge(k.verified)}
+    </span>`).join('') : '<span class="hint">无</span>';
+  $('a-classes').innerHTML = r.classifications.length ? r.classifications.map(c=>
+    `<div class="cls-card">
+      <span class="code" onclick="showSources(${JSON.stringify(c.sources).replace(/"/g,'&quot;')})">${esc(c.code)}</span>${vBadge(c.verified)}
+      <div class="expl">${esc(c.explanation)}</div>${srcBtns(c.sources)}
+    </div>`).join('') : '<span class="hint">无</span>';
+  const pq = r.patent_query;
+  $('a-query').innerHTML = `
+    <div class="querybox"><button class="ghost copy" onclick="navigator.clipboard.writeText(this.parentNode.querySelector('.qtext').innerText)">复制</button>
+      <span class="qtext">${esc(pq.query)||'—'}</span></div>
+    <div style="margin-top:8px">${pq.syntax_ok?'<span class="badge ok">语法自检通过</span>':'<span class="badge err">语法自检未通过</span>'}
+      <span class="hint" style="display:inline;margin-left:8px">${esc(pq.explanation)}</span></div>${srcBtns(pq.sources)}`;
+  const u = r.usage;
+  $('a-usage').textContent = `模型: ${u.model} · 输入 ${u.prompt_tokens} + 输出 ${u.completion_tokens} tokens · ${u.cache_hit?'缓存命中（0 费用）':'实际调用'} · 今日 ${u.daily_used}`;
+}
+function showSources(sources){
+  if(!sources||!sources.length){ alert('该项无有效来源引用'); return; }
+  showChunk(sources[0].chunk_id);
+}
+
+// ---------- browse ----------
+async function loadBrowse(path){
+  try{
+    const d = await api(`/browse?path=${encodeURIComponent(path)}`);
+    let tree = path ? `<div class="dir back" onclick="loadBrowse('${esc(path.split('/').slice(0,-1).join('/'))}')">📁 ..（返回上级）</div>` :
+                      '<div class="dir" style="color:var(--accent)">📁 知识库根目录</div>';
+    tree += d.dirs.map(x=>`<div class="dir" onclick="loadBrowse('${esc(x.rel_path)}')">📁 ${esc(x.name)}</div>`).join('');
+    $('b-tree').innerHTML = tree;
+    const statusBadge = s => s==='ok'||s==='truncated' ? '<span class="badge ok">已索引</span>'
+      : s==='failed' ? '<span class="badge err">失败</span>'
+      : s==='skipped_no_text' ? '<span class="badge inf">无文字层</span>'
+      : s==='unsupported' ? '<span class="badge inf">不支持</span>'
+      : '<span class="badge ext">未索引</span>';
+    $('b-files').innerHTML = d.files.length ? d.files.map(f=>
+      `<div class="frow" onclick="previewFile(${f.file_id??0},'${esc(f.rel_path)}',${f.file_id??'null'})">
+        <span class="nm">📄 ${esc(f.name)}</span>${statusBadge(f.status)}
+        <span class="sz">${fmtSize(f.size)}</span>
+      </div>`).join('') : '<div class="hint">空目录（或无文件）</div>';
+  }catch(e){ $('b-files').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+}
+async function previewFile(fileId, relPath, hasId){
+  if(!hasId){ alert('该文件尚未索引，请先在设置页执行扫描'); return; }
+  try{
+    const d = await api(`/file/chunks?file_id=${fileId}`);
+    CURRENT_FILE_ID = fileId;
+    const body = d.chunks.length ? d.chunks.map(c=>
+      `【片段 ${c.chunk_index+1} · ${esc(anchorText(JSON.parse(c.anchor_json||'{}')))}】\n${c.content}`
+    ).join('\n\n———\n\n') : `（无文本片段。状态: ${d.file.status}）`;
+    openModal(d.file.filename, body, fileId);
+  }catch(e){ alert(e.message); }
+}
+
+// ---------- settings ----------
+function loadSettings(){
+  api('/config').then(c=>{
+    $('c-baseurl').value = c.llm?.base_url||'';
+    $('c-apikey').value = '';
+    $('c-apikey').placeholder = c.llm?.api_key ? c.llm.api_key+'（保持不变）' : '未设置';
+    $('c-model').value = c.llm?.model||'';
+    $('c-litemodel').value = c.llm?.lite_model||'';
+    $('c-limit').value = c.cost?.daily_llm_call_limit??50;
+    $('c-warn').value = c.cost?.warn_tokens_per_call??8000;
+  });
+  api('/admin/index/status').then(s=>{ $('c-scanstat').textContent =
+    `共 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped} · 最后索引 ${s.last_scan_at||'—'}`; });
+  api('/admin/files').then(d=>{
+    const bad = d.files.filter(f=>['failed','unsupported','skipped_no_text'].includes(f.status));
+    $('c-failures').innerHTML = bad.length ? `<table><tr><th>文件</th><th>状态</th><th>说明</th></tr>` +
+      bad.map(f=>`<tr><td>${esc(f.rel_path)}</td><td>${esc(f.status)}</td><td class="err">${esc(f.error_msg||'')}</td></tr>`).join('') +
+      '</table>' : '<div class="hint">无失败/跳过文件 ✓</div>';
+  });
+  api('/admin/usage?days=7').then(d=>{
+    const rows = d.usage;
+    $('c-usage').innerHTML = rows.length ? `<table><tr><th>日期</th><th>调用</th><th>计费</th><th>缓存命中</th><th>tokens(入+出)</th></tr>` +
+      rows.map(u=>`<tr><td>${u.date}</td><td>${u.calls}</td><td>${u.billed}</td><td>${u.cache_hits}</td>
+        <td>${(u.prompt_tokens||0)+(u.completion_tokens||0)}</td></tr>`).join('') + '</table>'
+      : '<div class="hint">暂无调用记录</div>';
+  });
+}
+async function saveLlmCfg(){
+  const patch = {llm:{base_url:$('c-baseurl').value.trim(), model:$('c-model').value.trim(), lite_model:$('c-litemodel').value.trim()}};
+  if($('c-apikey').value.trim()) patch.llm.api_key = $('c-apikey').value.trim();
+  await api('/config',{method:'PUT', body:JSON.stringify(patch)});
+  $('c-saved').innerHTML = '<span style="color:var(--green)">✓ 已保存</span>';
+  setTimeout(()=>$('c-saved').textContent='', 2000);
+}
+async function saveCostCfg(){
+  await api('/config',{method:'PUT', body:JSON.stringify({cost:{
+    daily_llm_call_limit:parseInt($('c-limit').value)||50,
+    warn_tokens_per_call:parseInt($('c-warn').value)||8000}})});
+  alert('已保存');
+}
+async function doScan(full){
+  $('c-scanstat').innerHTML = '<span class="spin"></span>扫描中...';
+  try{
+    const rep = await api('/admin/index/scan',{method:'POST', body:JSON.stringify({full})});
+    $('c-scanstat').textContent = `✓ 新增 ${rep.added} · 更新 ${rep.updated} · 未变 ${rep.unchanged} · 移除 ${rep.removed} · 失败 ${rep.failed} · 跳过 ${rep.skipped}`;
+    refreshTop(); loadSettings();
+  }catch(e){ $('c-scanstat').textContent = e.message; }
+}
+
+// ---------- modal ----------
+function openModal(title, body, fileId){
+  $('m-title').textContent = title;
+  $('m-body').textContent = body;
+  $('m-foot').innerHTML = fileId ? `
+    <button class="ghost" onclick="downloadFile(${fileId})">下载文件</button>
+    <button class="ghost" onclick="revealFile(${fileId})">打开所在文件夹</button>` : '';
+  $('modal').classList.add('show');
+}
+function closeModal(){ $('modal').classList.remove('show'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+[project]
+name = "patent-kb"
+version = "0.1.0"
+description = "本地优先的专利咨询项目知识库工具"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "openai>=1.55",
+    "jieba>=0.42",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "pymupdf>=1.24",
+]
+
+[project.scripts]
+patentkb = "patentkb.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["patentkb"]

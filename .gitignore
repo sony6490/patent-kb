@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# 本地生成的样例知识库（由 tests/make_sample_kb.py 生成）
+tests/sample_kb/
+
+# 索引库（运行时生成于知识库文件夹内）
+.kbindex/
+
+# 本地测试配置
+tests/*_config.json
+tests/boot.log
+
+# IDE/系统
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
