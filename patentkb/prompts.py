@@ -1,6 +1,6 @@
 """Prompt 模板。PROMPT_VERSION 参与缓存键：改模板即失效旧缓存。"""
 
-PROMPT_VERSION = "v2-patsnap"
+PROMPT_VERSION = "v3-traceable"
 
 SYSTEM_PROMPT = """你是资深专利检索分析师的助手。你将收到：
 1. 用户的"新需求描述"
@@ -13,8 +13,8 @@ SYSTEM_PROMPT = """你是资深专利检索分析师的助手。你将收到：
 
 铁律：
 - 每个关键词、每个分类号、检索式，都必须给出 source_refs 字段，标注它依据哪些片段编号（如 ["C3","C7"]）
-- source_refs 只能使用给出的编号，不得编造
-- 生成内容应尽量立足于资料片段原文；当资料中未见但你基于专业推断时，同样给出依据片段编号，系统会标记为"AI 推断"
+- source_refs 只能使用给出的编号（如 C1、C15），不得编造不存在的编号，否则该系统会对你该项标注"未验证"告警
+- 优先引用包含该词/分类号的原文片段；生成内容应尽量立足于资料片段原文；当资料中未见但你基于专业推断时，同样给出依据片段编号，系统会标记为"AI 推断"
 - 分类号解释要具体（该分类号覆盖的技术主题）
 
 检索式语法（必须严格遵守，智慧芽 PatSnap 高级检索语法）：
@@ -40,6 +40,23 @@ def build_user_prompt(request_text: str, chunks: list[dict]) -> str:
     for ch in chunks:
         parts.append(f"{ch['ref']}（来源文件: {ch['rel_path']}）\n{ch['content']}\n")
     parts.append("请基于以上片段，按系统要求输出 JSON。检索式务必使用智慧芽高级检索语法。")
+    return "\n".join(parts)
+
+
+def build_followup_prompt(request_text: str, chunks: list[dict],
+                          history: list[dict]) -> str:
+    """追问 prompt：复用初次检索的同一批 chunk，附带压缩后的历史问答。
+    history: [{"q": ..., "a": ...}]，a 为上一轮结论摘要字符串。"""
+    parts = [f"【追问需求】\n{request_text}\n"]
+    if history:
+        parts.append("【历史对话（同一批资料）】")
+        for i, h in enumerate(history, 1):
+            parts.append(f"第{i}轮 问：{h.get('q','')}\n第{i}轮 答：{h.get('a','')}")
+        parts.append("")
+    parts.append("【同一批历史资料片段（编号不变）】")
+    for ch in chunks:
+        parts.append(f"{ch['ref']}（来源文件: {ch['rel_path']}）\n{ch['content']}\n")
+    parts.append("请基于以上片段与历史对话，按系统要求输出 JSON（格式与系统提示一致，source_refs 仍只能用给出的编号）。")
     return "\n".join(parts)
 
 

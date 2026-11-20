@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import analyzer, config, db, fts, indexer, llm
+from . import analyzer, config, db, fts, indexer, llm, ocr
 
 app = FastAPI(title="patent-kb")
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -43,14 +43,67 @@ def _require_init() -> dict:
 def wizard_status():
     cfg = config.load_config()
     llm_cfg = cfg.get("llm", {})
+    recents = [p for p in cfg.get("recent_kb_paths", []) if p and p != cfg.get("kb_path")]
     return {
         "initialized": config.initialized(cfg),
         "kb_path": cfg.get("kb_path", ""),
+        "recent_kb_paths": recents[:5],
+        "scanning": indexer.is_scanning(),
         "model": llm_cfg.get("model", ""),
         "model_masked": config.mask_key(llm_cfg.get("model", "")),
         "has_llm": bool(llm_cfg.get("base_url") and llm_cfg.get("api_key")),
         "has_lite_model": bool(llm_cfg.get("lite_model")),
     }
+
+
+@app.post("/api/kb/switch")
+def kb_switch(body: dict):
+    """切换知识库目录。校验通过才落盘；失败自动回滚到原库。"""
+    p = str(body.get("kb_path", "")).strip().strip('"').strip("'")
+    if not p:
+        raise HTTPException(400, "请输入新的知识库路径")
+    fp = Path(p)
+    if not fp.exists():
+        raise HTTPException(400, f"路径不存在: {p}")
+    if not fp.is_dir():
+        raise HTTPException(400, f"不是文件夹: {p}")
+    fp = fp.resolve()
+    cfg = config.load_config()
+    old = cfg.get("kb_path", "")
+    if str(fp) == old:
+        raise HTTPException(400, "新路径与当前知识库相同，无需切换")
+    if indexer.is_scanning():
+        raise HTTPException(409, "索引扫描进行中，请等待完成后再切换")
+    try:
+        probe_dir = fp / ".kbindex"
+        probe_dir.mkdir(parents=True, exist_ok=True)
+        probe = probe_dir / ".probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as e:
+        raise HTTPException(400, f"目录不可写（无法创建索引库）: {e}")
+
+    cfg["kb_path"] = str(fp)
+    recents = [old] + [x for x in cfg.get("recent_kb_paths", []) if x != old]
+    cfg["recent_kb_paths"] = [x for x in dict.fromkeys(recents) if x and x != str(fp)][:5]
+    config.save_config(cfg)
+    try:
+        db.reset()
+        db.init(str(fp))
+    except Exception as e:
+        cfg["kb_path"] = old  # 回滚
+        cfg["recent_kb_paths"] = [x for x in cfg["recent_kb_paths"] if x][:5]
+        config.save_config(cfg)
+        db.reset()
+        if old:
+            try:
+                db.init(old)
+            except Exception:
+                pass
+        raise HTTPException(500, f"切换失败，已回滚到原知识库: {e}")
+
+    status = indexer.index_status()
+    return {"ok": True, "kb_path": str(fp), "previous": old, "index": status}
 
 
 @app.post("/api/wizard/preview")
@@ -110,7 +163,7 @@ def test_llm(body: dict):
 
 @app.post("/api/config/list-models")
 def list_models(body: dict):
-    """从 OpenAI 兼容接口拉取模型列表。body 中缺省项回退到已保存配置。"""
+    """供应商模型列表 + 内置候选合并去重；接口故障软降级，保证内置模型始终可选。"""
     base_url = str(body.get("base_url", "")).strip()
     api_key = str(body.get("api_key", "")).strip()
     cfg = config.load_config()
@@ -121,14 +174,20 @@ def list_models(body: dict):
         raise HTTPException(400, "请先填写 Base URL")
     if not api_key:
         raise HTTPException(400, "请先填写 API Key")
+    vendor: list[str] = []
+    warning = ""
     try:
         from openai import OpenAI
         client = OpenAI(base_url=base_url, api_key=api_key, timeout=30)
         resp = client.models.list()
-        models = sorted(m.id for m in resp.data if getattr(m, "id", None))
-        return {"models": models}
+        vendor = [m.id for m in resp.data if getattr(m, "id", None)]
     except Exception as e:
-        raise HTTPException(502, f"获取模型列表失败: {e}")
+        warning = f"供应商接口不可用，仅显示内置候选模型：{e}"
+    models = sorted(set(vendor) | set(llm.BUILTIN_MODELS))
+    out: dict[str, Any] = {"models": models}
+    if warning:
+        out["warning"] = warning
+    return out
 
 
 @app.get("/api/config")
@@ -203,10 +262,9 @@ def _file_row(file_id: int) -> dict:
 
 
 def _abs_path_safe(row: dict) -> Path:
-    cfg = config.load_config()
-    root = Path(cfg["kb_path"]).resolve()
-    fp = (root / row["rel_path"]).resolve()
-    if not str(fp).startswith(str(root)):
+    # 委托 fts.safe_abs_path 统一校验（路径段比较，避免前缀绕过）；越界仍抛 400
+    fp = fts.safe_abs_path(row["rel_path"])
+    if fp is None:
         raise HTTPException(400, "非法路径")
     return fp
 
@@ -260,7 +318,7 @@ def search(q: str = Query(..., min_length=1), limit: int = 20):
     _require_init()
     if limit > 100:
         limit = 100
-    return {"hits": fts.search(q, limit)}
+    return {"hits": fts.decorate_hits(fts.search(q, limit))}
 
 
 # ---------- 分析 ----------
@@ -281,7 +339,7 @@ def do_analyze(body: dict):
     if not text:
         raise HTTPException(400, "需求描述不能为空")
     try:
-        return analyzer.analyze(text, bool(body.get("use_lite")))
+        return analyzer.analyze(text, bool(body.get("use_lite")), body.get("session"))
     except llm.DailyLimitError as e:
         raise HTTPException(429, str(e))
     except llm.LLMError as e:
@@ -316,6 +374,30 @@ def idx_scan(body: dict | None = None):
         raise HTTPException(500, f"扫描失败: {e}")
 
 
+@app.post("/api/admin/ocr")
+def admin_ocr(body: dict):
+    """按需 OCR：必须显式传 file_ids（单个或少量），拒绝空列表与全库批跑。"""
+    cfg = _require_init()
+    if not (cfg.get("features") or {}).get("ocr"):
+        raise HTTPException(403, "OCR 未启用。请在设置页开启 features.ocr（本地 CPU，无 API 费用）")
+    ids = body.get("file_ids") or ([body["file_id"]] if body.get("file_id") else [])
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "必须显式指定 file_ids")
+    if len(ids) > 20:
+        raise HTTPException(400, "单次最多 20 个文件，请分批处理（避免长时间占用 CPU）")
+    out = []
+    for fid in ids:
+        try:
+            out.append(ocr.ocr_file(int(fid)))
+        except PermissionError as e:
+            raise HTTPException(403, str(e))
+        except (ValueError, RuntimeError) as e:
+            out.append({"file_id": fid, "ok": False, "error": str(e)})
+        except Exception as e:
+            out.append({"file_id": fid, "ok": False, "error": f"OCR 失败: {e}"})
+    return {"results": out}
+
+
 @app.get("/api/admin/files")
 def admin_files(status: str = "", limit: int = 200):
     _require_init()
@@ -331,7 +413,7 @@ def admin_files(status: str = "", limit: int = 200):
 def admin_usage(days: int = 7):
     _require_init()
     days = min(days, 90)
-    return {"usage": llm.usage_summary(days)}
+    return {"usage": llm.usage_summary(days), "cost": llm.cost_summary()}
 
 
 @app.get("/api/chunk/{chunk_id}")

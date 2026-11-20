@@ -8,6 +8,7 @@ CONFIG_ENV = "PATENTKB_CONFIG"
 
 DEFAULTS: dict[str, Any] = {
     "kb_path": "",
+    "recent_kb_paths": [],
     "server": {"host": "127.0.0.1", "port": 8322, "auth_token": ""},
     "llm": {
         "base_url": "",
@@ -17,10 +18,12 @@ DEFAULTS: dict[str, Any] = {
         "timeout_sec": 60,
         "max_output_tokens": 2000,
     },
-    "fts": {"user_dict": "", "snippet_max_chars": 200},
-    "analyzer": {"top_n_chunks": 15, "max_chunk_chars": 4000},
+    "fts": {"user_dict": "", "snippet_max_chars": 200,
+            "synonyms_enabled": True, "synonyms_file": "", "max_synonyms_per_term": 3},
+    "analyzer": {"top_n_chunks": 15, "max_chunk_chars": 4000, "followup_max_history": 3},
     "cost": {"daily_llm_call_limit": 50, "warn_tokens_per_call": 8000},
-    "features": {"embedding": False, "vision": False},
+    "features": {"embedding": False, "vision": False, "ocr": False},
+    "ocr": {"engine": "rapidocr", "dpi": 200, "max_pages_per_file": 30, "min_confidence": 0.5},
     "indexer": {
         "exclude_dirs": [".kbindex", ".git", "node_modules", "__pycache__", "$RECYCLE.BIN", "System Volume Information"],
         "exclude_exts": [".tmp", ".ini", ".lnk", ".db"],

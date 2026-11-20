@@ -10,7 +10,7 @@ _conn: sqlite3.Connection | None = None
 _lock = threading.Lock()
 _kb_path: str = ""
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS usage_log (
   prompt_tokens INTEGER,
   completion_tokens INTEGER,
   cache_hit INTEGER DEFAULT 0,
-  error TEXT
+  error TEXT,
+  cost REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(ts);
 """
@@ -76,6 +77,11 @@ def init(kb_path: str) -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(_SCHEMA)
+        # 幂等补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加列。
+        # 老库升级时补齐 cost 列，历史行默认 0，不追溯补算。
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(usage_log)")}
+        if "cost" not in cols:
+            conn.execute("ALTER TABLE usage_log ADD COLUMN cost REAL NOT NULL DEFAULT 0")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
         _conn = conn

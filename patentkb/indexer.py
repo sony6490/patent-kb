@@ -1,11 +1,18 @@
 """索引器：mtime+size 增量扫描知识库文件夹，解析并写入 files/chunks/fts_chunks。"""
 import datetime as _dt
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
 from . import config, db, fts
 from .parsers import get_parser, is_indexable, LEGACY
+
+_scan_guard = threading.Lock()  # 防止并发扫描、以及扫描中切换知识库
+
+
+def is_scanning() -> bool:
+    return _scan_guard.locked()
 
 
 def _now() -> str:
@@ -14,6 +21,15 @@ def _now() -> str:
 
 def scan(kb_path: str, full: bool = False) -> dict[str, Any]:
     """扫描知识库。返回 ScanReport。full=True 时强制重解析所有文件。"""
+    if not _scan_guard.acquire(blocking=False):
+        return {"error": "已有扫描在进行中，请稍候"}
+    try:
+        return _scan_locked(kb_path, full)
+    finally:
+        _scan_guard.release()
+
+
+def _scan_locked(kb_path: str, full: bool) -> dict[str, Any]:
     root = Path(kb_path)
     if not root.is_dir():
         return {"error": f"路径不存在: {kb_path}"}
@@ -120,16 +136,21 @@ def _index_one(root: Path, rel_path: str, fp: Path, ext: str,
              status, error_msg, _now(), json.dumps(meta, ensure_ascii=False)),
         )
         file_id = cur.lastrowid
-        for i, ch in enumerate(chunks):
-            ccur = conn.execute(
-                "INSERT INTO chunks(file_id, chunk_index, content, anchor_json, char_count) VALUES(?,?,?,?,?)",
-                (file_id, i, ch["content"],
-                 json.dumps(ch["anchor"], ensure_ascii=False), len(ch["content"])),
-            )
-            conn.execute(
-                "INSERT INTO fts_chunks(tokens, chunk_id, file_id) VALUES(?,?,?)",
-                (fts.tokenize(ch["content"]), ccur.lastrowid, file_id),
-            )
+        _write_chunks(conn, file_id, chunks)
+
+
+def _write_chunks(conn, file_id: int, chunks: list[dict]) -> None:
+    """写 chunks + fts_chunks（调用方持有事务）。OCR 与主索引共用，防止 SQL 漂移。"""
+    for i, ch in enumerate(chunks):
+        ccur = conn.execute(
+            "INSERT INTO chunks(file_id, chunk_index, content, anchor_json, char_count) VALUES(?,?,?,?,?)",
+            (file_id, i, ch["content"],
+             json.dumps(ch["anchor"], ensure_ascii=False), len(ch["content"])),
+        )
+        conn.execute(
+            "INSERT INTO fts_chunks(tokens, chunk_id, file_id) VALUES(?,?,?)",
+            (fts.tokenize(ch["content"]), ccur.lastrowid, file_id),
+        )
 
 
 def index_status() -> dict[str, Any]:

@@ -45,7 +45,8 @@ label.fld span{display:block;color:var(--text2);font-size:12px;margin-bottom:5px
 .hit{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px}
 .hit .head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
 .hit .fname{font-weight:600;color:var(--text);cursor:pointer}
-.hit .fpath{color:var(--text3);font-size:12px}
+.hit .project{color:var(--accent);font-size:12px;font-weight:600}
+.hit .fpath{color:var(--text3);font-size:12px;word-break:break-all;margin-top:4px}
 .hit .anchor{color:var(--text2);font-size:12px}
 .snippet{color:var(--text2);line-height:1.6;font-size:13px;word-break:break-all}
 .snippet b{color:var(--accent);font-weight:600}
@@ -128,9 +129,12 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
       <button class="ghost" onclick="fetchModels()">获取模型列表</button>
       <span class="hint">获取后点击 Model 输入框可下拉选择</span>
     </div>
-    <label class="fld"><span>Model（主力模型）</span><input id="w-model" list="dl-models" placeholder="deepseek-chat"></label>
+    <label class="fld"><span>Model（主力模型）</span><input id="w-model" list="dl-models" placeholder="deepseek-flash"></label>
     <label class="fld"><span>Lite Model（可选，低成本轻量模型）</span><input id="w-litemodel" list="dl-models" placeholder="留空则与主力模型相同"></label>
-    <datalist id="dl-models"></datalist>
+    <datalist id="dl-models">
+      <option value="deepseek-flash"></option>
+      <option value="deepseek-v4-pro"></option>
+    </datalist>
     <div class="row">
       <button class="ghost" onclick="testLlm()">测试连接</button>
       <span id="w-testresult" class="hint"></span>
@@ -194,10 +198,21 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
       <div class="hint">每次分析调 LLM 一次；相同需求重复分析命中缓存，零费用。生成项绿色=原文验证，黄色=AI 推断（依据可点击追溯）。检索式按智慧芽(PatSnap)高级检索语法生成。</div>
     </div>
     <div id="a-results" style="display:none">
+      <div id="a-warnings"></div>
       <div class="card"><h3>① 关键词扩展</h3><div class="chips" id="a-keywords"></div></div>
       <div class="card"><h3>② IPC / CPC 分类号扩展</h3><div id="a-classes"></div></div>
       <div class="card"><h3>③ 专利检索式（智慧芽语法）</h3><div id="a-query"></div></div>
       <div class="hint" id="a-usage"></div>
+      <div class="card">
+        <h3>④ 追问（基于同一批资料）</h3>
+        <div id="a-chat" class="hint">首次分析后可在下方追问，复用同一批资料片段，不重新检索知识库。</div>
+        <div class="row" style="margin-top:8px">
+          <input id="a-followup" placeholder="如：把检索式限定在同族国家为 US" style="flex:1">
+          <button class="ghost" onclick="doFollowup()">追问</button>
+          <button class="ghost" onclick="resetSession()">新话题</button>
+        </div>
+        <div class="hint" style="margin-top:6px">每轮追问都是一次 LLM 调用（计费）；会话仅存于当前页面内存，刷新即清空。</div>
+      </div>
     </div>
   </div>
 
@@ -211,6 +226,18 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
 
   <!-- 设置 -->
   <div class="page" id="p-settings">
+    <div class="card">
+      <h3>知识库目录</h3>
+      <div class="hint">当前: <b id="c-kbpath"></b></div>
+      <label class="fld" style="margin-top:8px"><span>新目录路径（支持上级目录）</span><input id="c-newkb" placeholder="D:\其他项目文件夹"></label>
+      <div class="row" style="margin-bottom:10px">
+        <button class="ghost" onclick="previewNewKb()">预览可索引文件</button>
+        <button onclick="switchKb()">切换</button>
+        <span class="hint" id="c-kbresult"></span>
+      </div>
+      <div id="c-recentkb"></div>
+      <div class="hint">每个目录的索引独立保存在其 .kbindex 子目录，切回即恢复，互不影响。</div>
+    </div>
     <div class="card">
       <h3>大模型 API</h3>
       <label class="fld"><span>Base URL</span><input id="c-baseurl"></label>
@@ -230,6 +257,16 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
       <button onclick="saveCostCfg()">保存成本配置</button>
     </div>
     <div class="card">
+      <h3>OCR（按需、本地 CPU、零 API 费用）</h3>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:13px">
+          <input type="checkbox" id="c-ocr" style="width:auto"> 启用 OCR
+        </label>
+        <button class="ghost" onclick="saveOcrCfg()">保存</button>
+        <span class="hint">默认关闭。开启后，在浏览页对"无文字层"文件点「OCR」按钮，仅识别该文件，不批跑全库。</span>
+      </div>
+    </div>
+    <div class="card">
       <h3>索引管理</h3>
       <div class="row">
         <button class="ghost" onclick="doScan(false)">增量扫描</button>
@@ -237,6 +274,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
         <span class="hint" id="c-scanstat"></span>
       </div>
       <div class="hint">按 mtime+size 增量对比，只解析变化的文件（零重复解析成本）。</div>
+      <div class="hint" style="margin-top:6px">同义词召回已启用（零 token 成本）：内置种子表 + 可选 <b>&lt;知识库&gt;/.kbindex/synonyms.json</b> 覆盖，格式 {"无线": ["无线充电","无线供电"]}，修改后即时生效。注意：改 jieba 用户词典需全量重建。</div>
     </div>
     <div class="card">
       <h3>失败 / 跳过文件</h3>
@@ -283,6 +321,7 @@ const api = (p, opt) => {
 };
 const esc = s => (s??'').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtSize = n => n>1048576 ? (n/1048576).toFixed(1)+' MB' : n>1024 ? (n/1024).toFixed(1)+' KB' : n+' B';
+const money = n => '¥' + (Math.ceil((Number(n)||0)*100 - 1e-9)/100).toFixed(2);
 let CURRENT_FILE_ID = null;
 
 // ---------- init ----------
@@ -300,6 +339,10 @@ function refreshTop(){
   api('/admin/index/status').then(s=>{
     $('t-kbpath').textContent = $('t-kbpath').textContent.split('  [')[0] +
       `  [索引 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped}]`;
+  }).catch(()=>{});
+  api('/admin/usage?days=1').then(d=>{
+    const c = d.cost || {};
+    $('t-usage').textContent = `今日费用 ${money(c.today)}（${c.today_calls||0} 次）· 最近一次 ${money(c.last_call)}`;
   }).catch(()=>{});
 }
 
@@ -330,11 +373,12 @@ async function fetchModels(){
     const d = await api('/config/list-models',{method:'POST',
       body:JSON.stringify({base_url:base, api_key:key})});
     $('dl-models').innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join('');
+    const warn = d.warning ? `<span style="color:var(--yellow);display:block">⚠ ${esc(d.warning)}</span>` : '';
     if (d.models.length){
       if(!$('w-model').value) $('w-model').value = d.models[0];
-      $('w-testresult').innerHTML = `<span style="color:var(--green)">✓ 获取到 ${d.models.length} 个模型，点击 Model 输入框可选</span>`;
+      $('w-testresult').innerHTML = warn + `<span style="color:var(--green)">✓ 获取到 ${d.models.length} 个模型（含内置 deepseek-flash / deepseek-v4-pro），点击 Model 输入框可选</span>`;
     } else {
-      $('w-testresult').innerHTML = '<span style="color:var(--yellow)">接口未返回模型，请手动填写</span>';
+      $('w-testresult').innerHTML = warn + '<span style="color:var(--yellow)">接口未返回模型，请手动填写</span>';
     }
   }catch(e){
     $('w-testresult').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
@@ -345,7 +389,8 @@ async function fetchModelsSettings(){
     const d = await api('/config/list-models',{method:'POST',
       body:JSON.stringify({base_url:$('c-baseurl').value.trim(), api_key:$('c-apikey').value.trim()})});
     $('dl-models').innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join('');
-    $('c-saved').innerHTML = `<span style="color:var(--green)">✓ ${d.models.length} 个模型已载入，点击 Model 可下拉选择</span>`;
+    const warn = d.warning ? `<span style="color:var(--yellow);display:block">⚠ ${esc(d.warning)}</span>` : '';
+    $('c-saved').innerHTML = warn + `<span style="color:var(--green)">✓ ${d.models.length} 个模型已载入（含内置 deepseek-flash / deepseek-v4-pro），点击 Model 可下拉选择</span>`;
   }catch(e){ $('c-saved').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
 }
 function wizNext(){
@@ -412,10 +457,11 @@ async function doSearch(){
       <div class="hit">
         <div class="head">
           <span class="badge ext">${esc(h.ext||'')}</span>
+          <span class="badge inf">项目: ${esc(h.project||'—')}</span>
           <span class="fname" onclick="showChunk(${h.chunk_id})">${esc(h.filename)}</span>
           <span class="anchor">${esc(anchorText(h.anchor))}</span>
-          <span class="fpath">${esc(h.rel_path)}</span>
         </div>
+        <div class="fpath" title="${esc(h.abs_path||h.rel_path)}">完整路径: ${esc(h.abs_path||h.rel_path)}</div>
         <div class="snippet">${hlSnippet(h.snippet)}</div>
         <div class="actions">
           <button class="ghost" onclick="showChunk(${h.chunk_id})">查看原文</button>
@@ -451,6 +497,7 @@ async function doEstimate(){
     $('a-gobtn').disabled = false;
   }catch(e){ $('a-est').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
 }
+let LAST_SESSION = null;  // {chunk_ids, history} —— 仅内存，刷新即清空
 async function doAnalyze(){
   const t = $('a-text').value.trim(); if(!t) return;
   if (EST && EST.need_confirm && !confirm('本次分析预计消耗超过预警阈值，继续？')) return;
@@ -459,37 +506,75 @@ async function doAnalyze(){
   try{
     const r = await api('/analyze',{method:'POST', body:JSON.stringify({request_text:t, use_lite:$('a-lite').checked})});
     renderAnalyze(r);
+    refreshTop();  // 分析后即时刷新今日累计/最近一次费用
+    LAST_SESSION = {chunk_ids: r.chunk_ids || [], history: []};
+    $('a-chat').innerHTML = '<span class="hint">追问将复用本次检索的 ' + LAST_SESSION.chunk_ids.length + ' 个资料片段。</span>';
   }catch(e){
     $('a-est').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`;
   }finally{ $('a-gobtn').disabled=false; }
 }
-function vBadge(v){ return v ? '<span class="badge ok">原文验证</span>' : '<span class="badge inf">AI 推断</span>'; }
+function vBadge(v, cov){
+  const extra = (cov!==undefined && cov>0) ? ` <span style="color:var(--text2);font-size:11px">覆盖 ${(cov*100).toFixed(0)}%</span>` : '';
+  return v ? `<span class="badge ok">原文验证</span>${extra}` : `<span class="badge inf">AI 推断</span>${extra}`;
+}
 function srcBtns(sources, word){
   if(!sources||!sources.length) return '';
   return `<div class="actions">` + sources.map(s=>
-    `<button class="ghost" title="${esc(s.rel_path)}" onclick="showChunk(${s.chunk_id})">依据 ${esc(s.ref)} · ${esc(s.rel_path.split('/').pop())}</button>`
+    `<button class="ghost" title="${esc(s.rel_path)} · 覆盖 ${s.coverage!==undefined?(s.coverage*100).toFixed(0)+'%':''}" onclick="showChunk(${s.chunk_id})">依据 ${esc(s.ref)} · ${esc(s.rel_path.split('/').pop())}</button>`
   ).join('') + `</div>`;
 }
 function renderAnalyze(r){
   $('a-results').style.display='block';
   $('a-est').style.display='none';
+  $('a-warnings').innerHTML = (r.warnings||[]).map(w=>
+    `<div class="card" style="border-color:var(--red);margin-bottom:10px"><span class="badge err">${esc(w.code)}</span> <span style="color:var(--red)">${esc(w.message)}</span></div>`
+  ).join('');
   $('a-keywords').innerHTML = r.keywords.length ? r.keywords.map(k=>
     `<span class="chip" onclick="showSources(${JSON.stringify(k.sources).replace(/"/g,'&quot;')})">
-      <span class="verified-dot" style="background:${k.verified?'var(--green)':'var(--yellow)'}"></span>${esc(k.text)}${vBadge(k.verified)}
+      <span class="verified-dot" style="background:${k.verified?'var(--green)':'var(--yellow)'}"></span>${esc(k.text)}${vBadge(k.verified, k.coverage)}
     </span>`).join('') : '<span class="hint">无</span>';
   $('a-classes').innerHTML = r.classifications.length ? r.classifications.map(c=>
     `<div class="cls-card">
-      <span class="code" onclick="showSources(${JSON.stringify(c.sources).replace(/"/g,'&quot;')})">${esc(c.code)}</span>${vBadge(c.verified)}
+      <span class="code" onclick="showSources(${JSON.stringify(c.sources).replace(/"/g,'&quot;')})">${esc(c.code)}</span>${vBadge(c.verified, c.coverage)}
       <div class="expl">${esc(c.explanation)}</div>${srcBtns(c.sources)}
     </div>`).join('') : '<span class="hint">无</span>';
   const pq = r.patent_query;
   $('a-query').innerHTML = `
     <div class="querybox"><button class="ghost copy" onclick="navigator.clipboard.writeText(this.parentNode.querySelector('.qtext').innerText)">复制</button>
       <span class="qtext">${esc(pq.query)||'—'}</span></div>
-    <div style="margin-top:8px">${pq.syntax_ok?'<span class="badge ok">语法自检通过</span>':'<span class="badge err">语法自检未通过</span>'}
+    <div style="margin-top:8px">${vBadge(pq.verified, pq.coverage)}
+      ${pq.syntax_ok?'<span class="badge ok">语法自检通过</span>':'<span class="badge err">语法自检未通过</span>'}
       <span class="hint" style="display:inline;margin-left:8px">${esc(pq.explanation)}</span></div>${srcBtns(pq.sources)}`;
   const u = r.usage;
-  $('a-usage').textContent = `模型: ${u.model} · 输入 ${u.prompt_tokens} + 输出 ${u.completion_tokens} tokens · ${u.cache_hit?'缓存命中（0 费用）':'实际调用'} · 今日 ${u.daily_used}`;
+  $('a-usage').textContent = `模型: ${u.model} · 输入 ${u.prompt_tokens} + 输出 ${u.completion_tokens} tokens · ${u.cache_hit?'缓存命中（0 费用）':'实际调用'} · 本次费用 ${money(u.cost||0)} · 今日 ${u.daily_used}`;
+}
+function compressResult(r){
+  const kws = (r.keywords||[]).map(k=>k.text).slice(0,8).join('、');
+  const cls = (r.classifications||[]).map(c=>c.code).slice(0,5).join('、');
+  const q = r.patent_query?.query||'';
+  return `关键词[${kws}]；分类号[${cls}]；检索式[${q}]`;
+}
+async function doFollowup(){
+  if(!LAST_SESSION || !LAST_SESSION.chunk_ids.length){ alert('请先执行一次新需求分析'); return; }
+  const q = $('a-followup').value.trim(); if(!q) return;
+  const prev = $('a-chat').innerHTML;
+  $('a-chat').innerHTML = prev + `<div style="margin-top:6px"><b>问：</b>${esc(q)} <span class="spin"></span></div>`;
+  try{
+    const r = await api('/analyze',{method:'POST', body:JSON.stringify({
+      request_text:q, use_lite:$('a-lite').checked, session:LAST_SESSION})});
+    LAST_SESSION.history = (LAST_SESSION.history||[]).concat([{q, a:compressResult(r)}]).slice(-3);
+    renderAnalyze(r);
+    refreshTop();  // 追问后即时刷新费用
+    $('a-chat').innerHTML = prev + `<div style="margin-top:6px"><b>问：</b>${esc(q)}</div><div style="color:var(--green)"><b>答：</b>${esc(compressResult(r))}</div>`;
+    $('a-followup').value = '';
+  }catch(e){
+    $('a-chat').innerHTML = prev + `<div style="margin-top:6px;color:var(--red)">✗ ${esc(e.message)}</div>`;
+  }
+}
+function resetSession(){
+  if(!LAST_SESSION) return;
+  LAST_SESSION = {chunk_ids:LAST_SESSION.chunk_ids, history:[]};
+  $('a-chat').innerHTML = '<span class="hint">已开启新话题，仍复用同一批资料片段。</span>';
 }
 function showSources(sources){
   if(!sources||!sources.length){ alert('该项无有效来源引用'); return; }
@@ -512,6 +597,7 @@ async function loadBrowse(path){
     $('b-files').innerHTML = d.files.length ? d.files.map(f=>
       `<div class="frow" onclick="previewFile(${f.file_id??0},'${esc(f.rel_path)}',${f.file_id??'null'})">
         <span class="nm">📄 ${esc(f.name)}</span>${statusBadge(f.status)}
+        ${f.status==='skipped_no_text'&&f.file_id?`<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();doOcr(${f.file_id})">OCR</button>`:''}
         <span class="sz">${fmtSize(f.size)}</span>
       </div>`).join('') : '<div class="hint">空目录（或无文件）</div>';
   }catch(e){ $('b-files').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
@@ -528,8 +614,61 @@ async function previewFile(fileId, relPath, hasId){
   }catch(e){ alert(e.message); }
 }
 
+async function doOcr(fileId){
+  if(!confirm('对此文件执行本地 OCR？仅识别该文件，不批跑全库。')) return;
+  try{
+    const r = await api('/admin/ocr',{method:'POST', body:JSON.stringify({file_ids:[fileId]})});
+    const x = r.results[0];
+    alert(x.ok ? `✓ OCR 完成，生成 ${x.chunks} 个片段，内容已可检索` : `✗ ${x.error}`);
+  }catch(e){ alert('✗ ' + e.message); }
+}
+
 // ---------- settings ----------
+let RECENT_KB = [];
+function loadKbCard(){
+  api('/wizard/status').then(st=>{
+    $('c-kbpath').textContent = st.kb_path || '—';
+    RECENT_KB = st.recent_kb_paths || [];
+    $('c-recentkb').innerHTML = RECENT_KB.length
+      ? '<div class="hint" style="margin-top:6px">历史目录（点击切回）:</div>' +
+        RECENT_KB.map((p,i)=>`<button class="ghost" style="margin:4px 4px 0 0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p)}" onclick="switchKbIdx(${i})">${esc(p)}</button>`).join('')
+      : '';
+  });
+}
+async function switchKbIdx(i){
+  $('c-newkb').value = RECENT_KB[i] || '';
+  switchKb();
+}
+async function previewNewKb(){
+  const p = $('c-newkb').value.trim();
+  if(!p){ alert('请输入新路径'); return; }
+  $('c-kbresult').innerHTML = '<span class="spin"></span>预览中...';
+  try{
+    const d = await api('/wizard/preview',{method:'POST', body:JSON.stringify({kb_path:p})});
+    const exts = (d.by_ext||[]).slice(0,6).map(x=>`${x[0]}:${x[1]}`).join(' · ');
+    $('c-kbresult').innerHTML = `<span style="color:var(--green)">✓ ${d.total} 个可索引文件${exts?'（'+exts+'）':''}</span>`;
+  }catch(e){
+    $('c-kbresult').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+  }
+}
+async function switchKb(){
+  const p = $('c-newkb').value.trim();
+  if(!p){ alert('请输入新路径'); return; }
+  if(!confirm(`确认切换知识库到：\n${p}\n\n当前目录的索引会保留，随时可切回。`)) return;
+  $('c-kbresult').innerHTML = '<span class="spin"></span>切换中...';
+  try{
+    const r = await api('/kb/switch',{method:'POST', body:JSON.stringify({kb_path:p})});
+    const s = r.index;
+    let msg = `✓ 已切换（共 ${s.total} 文件 · ok ${s.ok}）`;
+    if(!s.total) msg += ' — 新库为空，请点下方"增量扫描"建立索引';
+    $('c-kbresult').innerHTML = `<span style="color:var(--green)">${esc(msg)}</span>`;
+    refreshTop(); loadSettings();
+  }catch(e){
+    $('c-kbresult').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+  }
+}
 function loadSettings(){
+  loadKbCard();
   api('/config').then(c=>{
     $('c-baseurl').value = c.llm?.base_url||'';
     $('c-apikey').value = '';
@@ -538,6 +677,7 @@ function loadSettings(){
     $('c-litemodel').value = c.llm?.lite_model||'';
     $('c-limit').value = c.cost?.daily_llm_call_limit??50;
     $('c-warn').value = c.cost?.warn_tokens_per_call??8000;
+    $('c-ocr').checked = !!c.features?.ocr;
   });
   api('/admin/index/status').then(s=>{ $('c-scanstat').textContent =
     `共 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped} · 最后索引 ${s.last_scan_at||'—'}`; });
@@ -548,11 +688,12 @@ function loadSettings(){
       '</table>' : '<div class="hint">无失败/跳过文件 ✓</div>';
   });
   api('/admin/usage?days=7').then(d=>{
-    const rows = d.usage;
-    $('c-usage').innerHTML = rows.length ? `<table><tr><th>日期</th><th>调用</th><th>计费</th><th>缓存命中</th><th>tokens(入+出)</th></tr>` +
+    const rows = d.usage, c = d.cost || {};
+    $('c-usage').innerHTML = `<div class="hint" style="margin-bottom:8px">今日累计 ${money(c.today)}（${c.today_calls||0} 次）· 最近一次 ${money(c.last_call)}（${esc(c.last_call_model||'')}）· 单位 ¥ · 按 DeepSeek 官方峰谷定价估算</div>` +
+      (rows.length ? `<table><tr><th>日期</th><th>调用</th><th>计费</th><th>缓存命中</th><th>tokens(入+出)</th><th>费用(¥)</th></tr>` +
       rows.map(u=>`<tr><td>${u.date}</td><td>${u.calls}</td><td>${u.billed}</td><td>${u.cache_hits}</td>
-        <td>${(u.prompt_tokens||0)+(u.completion_tokens||0)}</td></tr>`).join('') + '</table>'
-      : '<div class="hint">暂无调用记录</div>';
+        <td>${(u.prompt_tokens||0)+(u.completion_tokens||0)}</td><td>${money(u.cost||0)}</td></tr>`).join('') + '</table>'
+      : '<div class="hint">暂无调用记录</div>');
   });
 }
 async function saveLlmCfg(){
@@ -567,6 +708,10 @@ async function saveCostCfg(){
     daily_llm_call_limit:parseInt($('c-limit').value)||50,
     warn_tokens_per_call:parseInt($('c-warn').value)||8000}})});
   alert('已保存');
+}
+async function saveOcrCfg(){
+  await api('/config',{method:'PUT', body:JSON.stringify({features:{ocr:$('c-ocr').checked}})});
+  alert('OCR 配置已保存');
 }
 async function doScan(full){
   $('c-scanstat').innerHTML = '<span class="spin"></span>扫描中...';

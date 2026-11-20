@@ -53,6 +53,27 @@ def _retrieve_chunks(request_text: str) -> list[dict[str, Any]]:
     return out
 
 
+def _reuse_chunks(chunk_ids: list[int]) -> list[dict[str, Any]]:
+    """追问时按 id 取回初次检索的同一批 chunk，保持 C 编号稳定；不重跑 FTS。"""
+    cfg = config.load_config()
+    max_chars = (cfg.get("analyzer") or {}).get("max_chunk_chars", 4000)
+    out = []
+    for i, cid in enumerate(chunk_ids[:15], 1):
+        rows = db.q(
+            "SELECT c.content, c.anchor_json, f.rel_path FROM chunks c "
+            "JOIN files f ON f.id=c.file_id WHERE c.id=?", (cid,))
+        if not rows:
+            continue
+        out.append({
+            "ref": f"C{i}",
+            "chunk_id": cid,
+            "rel_path": rows[0]["rel_path"],
+            "content": rows[0]["content"][:max_chars],
+            "anchor": fts._parse_json(rows[0]["anchor_json"]),
+        })
+    return out
+
+
 def estimate(request_text: str, use_lite: bool = False) -> dict[str, Any]:
     """免费预估：检索 + token 估算，不调 LLM。"""
     cfg = config.load_config()
@@ -107,38 +128,62 @@ def _check_query_syntax(q: str) -> bool:
     return not stack
 
 
-def _valid_refs(refs: Any, valid: set[str]) -> list[str]:
+def _valid_refs(refs: Any, valid: set[str]) -> tuple[list[str], list[str]]:
+    """返回 (合法编号, 非法编号)；非法编号由调用方显式告警，不再静默丢弃。"""
     if not isinstance(refs, list):
-        return []
-    return [r for r in refs if isinstance(r, str) and r in valid]
+        return [], []
+    good = [r for r in refs if isinstance(r, str) and r in valid]
+    bad = [str(r) for r in refs if not (isinstance(r, str) and r in valid)]
+    return good, bad
 
 
-def analyze(request_text: str, use_lite: bool = False) -> dict[str, Any]:
-    """主分析流程。"""
+def analyze(request_text: str, use_lite: bool = False,
+            session: dict | None = None) -> dict[str, Any]:
+    """主分析流程。session 非空时为追问：复用同一批 chunk、带历史，不重跑 FTS。"""
     cfg = config.load_config()
     llm_cfg = cfg.get("llm", {})
     if not llm_cfg.get("base_url") or not llm_cfg.get("api_key") or not llm_cfg.get("model"):
         raise llm.LLMError("未配置 LLM API，请先在设置页配置 base_url / api_key / model")
 
+    is_followup = bool(session and session.get("chunk_ids"))
     model = _pick_model(cfg, use_lite)
-    chunks = _retrieve_chunks(request_text)
+    if is_followup:
+        chunks = _reuse_chunks(session["chunk_ids"])
+        history = (session.get("history") or [])[-(int((cfg.get("analyzer") or {}).get("followup_max_history", 3))):]
+    else:
+        chunks = _retrieve_chunks(request_text)
+        history = []
     if not chunks:
         raise llm.LLMError("知识库中未检索到相关内容，无法基于资料分析。请先索引知识库或调整需求描述")
 
     valid_refs = {ch["ref"] for ch in chunks}
     chunk_by_ref = {ch["ref"]: ch for ch in chunks}
 
+    if is_followup:
+        user_prompt = prompts.build_followup_prompt(request_text, chunks, history)
+    else:
+        user_prompt = prompts.build_user_prompt(request_text, chunks)
     messages = [
         {"role": "system", "content": prompts.SYSTEM_PROMPT},
-        {"role": "user", "content": prompts.build_user_prompt(request_text, chunks)},
+        {"role": "user", "content": user_prompt},
     ]
     norm = llm.normalize_text(request_text)
     chunk_ids = [ch["chunk_id"] for ch in chunks]
+    req_type = "analyze_followup" if is_followup else "analyze"
+    if is_followup:
+        # 历史摘要进缓存键，防止不同会话上下文的同问题互相命中
+        hist_sig = "|".join(f"{h.get('q','')}->{h.get('a','')[:40]}" for h in history)
+        norm = llm.normalize_text(norm + "||" + hist_sig)
+
+    # 校验器：坏 JSON 既不入缓存，也能让历史脏缓存自动失效（不再靠改 chunk_ids 绕键）
+    def _is_json(s: str) -> bool:
+        return _extract_json(s) is not None
 
     result = None
     for attempt in range(2):
         resp = llm.call_cached(
-            model, messages, "analyze", norm, chunk_ids, prompts.PROMPT_VERSION
+            model, messages, req_type, norm, chunk_ids, prompts.PROMPT_VERSION,
+            validate=_is_json,
         )
         result = _extract_json(resp["content"])
         if result is not None:
@@ -147,9 +192,6 @@ def analyze(request_text: str, use_lite: bool = False) -> dict[str, Any]:
             {"role": "assistant", "content": resp["content"]},
             *prompts.RETRY_PROMPT("非合法 JSON"),
         ])
-        # 重试不重复计缓存（call_cached 同 key 会命中缓存），改为直接调用一次未缓存路径：
-        # 简化处理：重试通过临时改变 chunk_ids 顺序绕开缓存键
-        chunk_ids = chunk_ids + [0] if attempt == 0 else chunk_ids
 
     if result is None:
         raise llm.LLMError("LLM 两次输出均无法解析为 JSON")
@@ -159,37 +201,50 @@ def analyze(request_text: str, use_lite: bool = False) -> dict[str, Any]:
 
 def _assemble(result: dict, valid_refs: set, chunk_by_ref: dict,
               model: str, resp: dict) -> dict[str, Any]:
-    """引用校验与结果组装。verified=词/码出现在所指 chunk 原文。"""
+    """引用校验与结果组装。verified=词/码在所指 chunk 原文有依据；非法编号显式告警。"""
+    warnings: list[dict] = []
 
-    def sources_for(refs: list[str], text: str) -> list[dict]:
-        srcs, verified_any = [], False
+    def sources_for(refs: list[str], text: str) -> tuple[list[dict], dict]:
+        srcs = []
+        texts = []
         for r in refs:
             ch = chunk_by_ref.get(r)
             if not ch:
                 continue
-            content = ch["content"]
+            texts.append(ch["content"])
             srcs.append({
                 "ref": r,
                 "chunk_id": ch["chunk_id"],
                 "rel_path": ch["rel_path"],
                 "anchor": ch["anchor"],
-                "snippet": content[:200],
+                "snippet": ch["content"][:200],
             })
-            if fts.verify_in_text(text, content):
-                verified_any = True
-        return srcs, verified_any
+        score = fts.verify_score(text, texts) if (srcs and text) else {
+            "verified": False, "hit_chunks": 0, "token_coverage": 0.0, "bigram_overlap": 0.0}
+        for s in srcs:
+            s["coverage"] = score["token_coverage"]
+        return srcs, score
+
+    def note_invalid(bad: list[str], where: str) -> None:
+        if bad:
+            warnings.append({
+                "code": "INVALID_REF",
+                "message": f"{where} 引用了不存在的编号 {', '.join(bad)}，已忽略且该项标为未验证",
+            })
 
     keywords = []
     for kw in result.get("keywords", []):
         text = str(kw.get("text", "")).strip()
         if not text:
             continue
-        refs = _valid_refs(kw.get("source_refs"), valid_refs)
-        srcs, verified = sources_for(refs, text)
+        refs, bad = _valid_refs(kw.get("source_refs"), valid_refs)
+        note_invalid(bad, f"关键词「{text}」")
+        srcs, score = sources_for(refs, text)
         keywords.append({
             "text": text,
             "lang": kw.get("lang", "zh"),
-            "verified": verified and bool(srcs),
+            "verified": bool(score["verified"] and srcs),
+            "coverage": score["token_coverage"],
             "sources": srcs,
         })
 
@@ -198,22 +253,40 @@ def _assemble(result: dict, valid_refs: set, chunk_by_ref: dict,
         code = str(c.get("code", "")).strip()
         if not code:
             continue
-        refs = _valid_refs(c.get("source_refs"), valid_refs)
-        srcs, verified = sources_for(refs, code)
+        refs, bad = _valid_refs(c.get("source_refs"), valid_refs)
+        note_invalid(bad, f"分类号「{code}」")
+        srcs, score = sources_for(refs, code)
         classifications.append({
             "code": code,
             "explanation": str(c.get("explanation", "")).strip(),
-            "verified": verified and bool(srcs),
+            "verified": bool(score["verified"] and srcs),
+            "coverage": score["token_coverage"],
             "sources": srcs,
         })
 
     pq = result.get("patent_query", {}) or {}
     query = str(pq.get("query", "")).strip()
-    refs = _valid_refs(pq.get("source_refs"), valid_refs)
+    refs, bad = _valid_refs(pq.get("source_refs"), valid_refs)
+    note_invalid(bad, "检索式")
     srcs, _ = sources_for(refs, query)
+    qterms = fts.query_field_terms(query)
+    if qterms and srcs:
+        src_texts = [chunk_by_ref[r]["content"] for r in refs if r in chunk_by_ref]
+        per_term = [fts.verify_score(term, src_texts) for term in qterms]
+        verified_terms = sum(1 for s in per_term if s["verified"])
+        qscore = {
+            "verified": verified_terms / len(per_term) >= 0.6,
+            "token_coverage": round(sum(s["token_coverage"] for s in per_term) / len(per_term), 2),
+            "hit_chunks": max((s["hit_chunks"] for s in per_term), default=0),
+        }
+    else:
+        qscore = {"verified": False, "token_coverage": 0.0, "hit_chunks": 0}
     patent_query = {
         "query": query,
         "syntax_ok": _check_query_syntax(query) if query else False,
+        "verified": bool(qscore["verified"] and srcs),
+        "coverage": qscore["token_coverage"],
+        "hit_chunks": qscore["hit_chunks"],
         "explanation": str(pq.get("explanation", "")).strip(),
         "sources": srcs,
     }
@@ -226,10 +299,14 @@ def _assemble(result: dict, valid_refs: set, chunk_by_ref: dict,
     else:
         usage["prompt_tokens"] = 0
         usage["completion_tokens"] = 0
+    # 本次费用（元）：缓存命中时 usage 为 None，取 0
+    usage["cost"] = round((resp.get("usage") or {}).get("cost", 0.0), 6)
 
     return {
         "keywords": keywords,
         "classifications": classifications,
         "patent_query": patent_query,
+        "warnings": warnings,
+        "chunk_ids": [ch["chunk_id"] for ch in chunk_by_ref.values()],
         "usage": usage,
     }

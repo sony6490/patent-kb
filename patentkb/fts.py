@@ -1,5 +1,6 @@
 """FTS5 检索：jieba 预分词、查询构建（AND→OR 降级）、snippet、引用校验归一化。"""
 import re
+from pathlib import Path
 from typing import Any
 
 import jieba
@@ -7,6 +8,72 @@ import jieba
 from . import config
 
 _user_dict_loaded = False
+_syn_cache: dict[str, tuple[float, dict]] = {}  # 同义词表模块级缓存：path -> (mtime, data)
+
+# 内置种子同义词表（专利/电学场景常见术语）；用户可在 .kbindex/synonyms.json 覆盖
+_SEED_SYNONYMS: dict[str, list[str]] = {
+    "无线": ["无线充电", "无线供电", "感应式"],
+    "充电": ["供电", "充能"],
+    "线圈": ["绕组", "感应线圈"],
+    "定位": ["对位", "对准", "校位"],
+    "耦合": ["藕合", "磁耦合"],
+    "补偿": ["校准", "校正"],
+    "异物": ["FOD", "异物检测"],
+    "热成像": ["红外成像", "热像"],
+    "瞄准镜": ["瞄准具", "瞄具"],
+    "光轴": ["光学轴", "视轴"],
+}
+
+
+def synonyms() -> dict[str, list[str]]:
+    """读取同义词表：配置 fts.synonyms_file 优先，否则 <kb_path>/.kbindex/synonyms.json。
+    表结构 {"词": ["同义1", "同义2"]}。按 mtime 变化重载，无需重建索引。"""
+    import json
+    cfg = config.load_config().get("fts") or {}
+    if not cfg.get("synonyms_enabled", True):
+        return {}
+    custom = cfg.get("synonyms_file", "")
+    if custom:
+        p = Path(custom)
+    else:
+        kb = config.load_config().get("kb_path", "")
+        p = Path(kb) / ".kbindex" / "synonyms.json" if kb else Path("")
+    if not p or not p.is_file():
+        return dict(_SEED_SYNONYMS)  # 无自定义表时用内置种子，零配置生效
+    try:
+        mt = p.stat().st_mtime
+        cached = _syn_cache.get(str(p))
+        if cached and cached[0] == mt:
+            return cached[1]
+        data = json.loads(p.read_text(encoding="utf-8"))
+        out = {str(k): [str(x) for x in v][:5] for k, v in data.items() if isinstance(v, list)}
+        _syn_cache[str(p)] = (mt, out)
+        return out
+    except Exception:
+        return {}
+
+
+def expand_groups(terms: list[str]) -> list[list[str]]:
+    """每个查询词扩展为 [原词, 同义...] 组；同义词个数受 max_synonyms_per_term 限制。
+    支持双向映射：查询用同义词（如"对位"）也能召回原文词（如"定位"）。"""
+    cfg = config.load_config().get("fts") or {}
+    max_syn = int(cfg.get("max_synonyms_per_term", 3))
+    syn = synonyms()
+    reverse: dict[str, list[str]] = {}
+    for word, alts in syn.items():
+        for alt in alts:
+            reverse.setdefault(alt, []).append(word)
+            for other in alts:
+                if other != alt:
+                    reverse.setdefault(alt, []).append(other)
+    groups = []
+    for t in terms:
+        extra = []
+        for s in list(syn.get(t, [])) + list(reverse.get(t, [])):
+            if s != t and s not in extra:
+                extra.append(s)
+        groups.append([t] + extra[:max_syn])
+    return groups
 
 
 def _ensure_dict() -> None:
@@ -36,20 +103,49 @@ def _norm_word(w: str) -> str:
     return re.sub(r"[\s\u3000·、，。；：''\"\"()（）\[\]【】/|]+", "", w).lower()
 
 
-def verify_in_text(word: str, text: str) -> bool:
-    """校验 word 是否出现在 text 中：先整体归一化包含，再做去空格匹配（防中文分词空格干扰）。"""
-    if not word or not text:
-        return False
-    nw, nt = _norm_word(word), _norm_word(text)
+def verify_score(word: str, texts: Any) -> dict[str, Any]:
+    """校验 word 是否在 texts 中有原文依据，返回多维度指标（纯本地、无语义模型）。
+
+    verified 判定：整体归一化包含，或分词覆盖率≥0.8，或归一化 bigram 重叠≥0.6。
+    """
+    if isinstance(texts, str):
+        texts = [texts]
+    nw = _norm_word(word)
     if not nw:
-        return False
-    if nw in nt:
-        return True
-    # 二级降级：word 分词后逐 token 均出现（处理插入标点的情况）
+        return {"verified": False, "hit_chunks": 0, "token_coverage": 0.0, "bigram_overlap": 0.0}
+    norm_texts = [_norm_word(t) for t in texts if t]
+    hits = sum(1 for nt in norm_texts if nw in nt)
     toks = [t for t in tokenize(word).split() if len(_norm_word(t)) >= 2]
-    if toks and all(_norm_word(t) in nt for t in toks):
-        return True
-    return False
+    cov = (sum(1 for t in toks if any(_norm_word(t) in nt for nt in norm_texts)) / len(toks)) if toks else 0.0
+    grams = {nw[i:i+2] for i in range(len(nw) - 1)}
+    ov = (sum(1 for g in grams if any(g in nt for nt in norm_texts)) / len(grams)) if grams else 0.0
+    verified = hits > 0 or cov >= 0.8 or ov >= 0.6
+    return {"verified": bool(verified), "hit_chunks": hits,
+            "token_coverage": round(cov, 2), "bigram_overlap": round(ov, 2)}
+
+
+def verify_in_text(word: str, text: str) -> bool:
+    """向后兼容的布尔包装。"""
+    return verify_score(word, text)["verified"]
+
+
+def query_field_terms(query: str) -> list[str]:
+    """从智慧芽检索式中提取用于溯源校验的词与分类号（剥离字段/逻辑符/括号/引号/通配符）。"""
+    s = re.sub(r"\b(?:TI|ABST|CLMS|TAC|PN|PA|IN|IPC|CPC|FAM_COUNTRY)\s*:", " ", query, flags=re.I)
+    s = re.sub(r"\b(?:AND|OR|NOT)\b", " ", s, flags=re.I)
+    s = s.replace("(", " ").replace(")", " ").replace('"', " ").replace("“", " ").replace("”", " ")
+    s = re.sub(r"[?*]", " ", s)
+    codes = re.findall(r"[A-H]\d{2}[A-Z]?\d*/\d+", s, flags=re.I)  # IPC/CPC 分类号
+    for c in codes:  # 从文本移除分类号，避免 jieba 再拆成 H02J50 / 80 噪音词
+        s = s.replace(c, " ")
+    terms = query_terms(s)
+    seen: set[str] = set()
+    out = []
+    for t in codes + terms:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out[:12]
 
 
 def query_terms(q: str) -> list[str]:
@@ -74,6 +170,15 @@ def _fts_expr(terms: list[str], op: str) -> str:
     return f" {op} ".join(parts)
 
 
+def _fts_expr_groups(groups: list[list[str]], op: str) -> str:
+    """每组内 OR（原词+同义），组间按 op（AND/OR）连接。"""
+    parts = []
+    for g in groups:
+        inner = " OR ".join(f'"{t}"' for t in g)
+        parts.append(f"({inner})" if len(g) > 1 else inner)
+    return f" {op} ".join(parts)
+
+
 def search(q: str, limit: int = 20, force_or: bool = False) -> list[dict[str, Any]]:
     """FTS 检索：多词 AND 优先，无结果降级 OR（force_or 直接用 OR）；返回带 snippet 的命中。"""
     from . import db
@@ -83,9 +188,10 @@ def search(q: str, limit: int = 20, force_or: bool = False) -> list[dict[str, An
         return []
     snip = (config.load_config().get("fts") or {}).get("snippet_max_chars", 200)
 
+    groups = expand_groups(terms)  # 同义词查询时扩展，无需重建索引
     ops = ("OR",) if force_or else ("AND", "OR")
     for op in ops:
-        expr = _fts_expr(terms, op)
+        expr = _fts_expr_groups(groups, op)
         sql = (
             "SELECT f.chunk_id, f.file_id, "
             "snippet(fts_chunks, 0, '»', '«', '…', 12) AS snip, rank "
@@ -140,3 +246,33 @@ def _parse_json(s: str) -> dict:
         return json.loads(s)
     except Exception:
         return {}
+
+
+# ---------- 检索结果来源展示：项目名 + 完整绝对路径 ----------
+
+def project_name() -> str:
+    """项目名 = 当前知识库根目录(kb_path)的目录名；随切库自动变化。"""
+    return Path(config.load_config()["kb_path"]).resolve().name
+
+
+def safe_abs_path(rel_path: str) -> Path | None:
+    """把 rel_path 安全还原为绝对路径；越界/异常返回 None（不抛异常）。
+
+    与 main._abs_path_safe 同源校验，但展示层不允许单条脏数据中断整页。
+    """
+    try:
+        root = Path(config.load_config()["kb_path"]).resolve()
+        fp = (root / rel_path).resolve()
+    except (OSError, ValueError, TypeError):
+        return None
+    return fp if fp.is_relative_to(root) else None
+
+
+def decorate_hits(hits: list[dict]) -> list[dict]:
+    """为命中项附加 project 与 abs_path 字段（就地修改并返回）。"""
+    proj = project_name()
+    for h in hits:
+        fp = safe_abs_path(h.get("rel_path", ""))
+        h["project"] = proj
+        h["abs_path"] = str(fp) if fp is not None else ""
+    return hits
