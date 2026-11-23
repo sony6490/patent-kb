@@ -7,6 +7,8 @@
 """
 import json
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 
@@ -405,3 +407,69 @@ def test_list_models_fallback_warning(env, monkeypatch):
     d = r.json()
     assert "deepseek-flash" in d["models"] and "deepseek-v4-pro" in d["models"]
     assert d["warning"], "接口不可用应给 warning 提示"
+
+
+# ---------- 需求2补充：读写分离（扫描长事务不得堵死读接口） ----------
+
+def test_read_connection_isolated_from_write_transaction(env):
+    """写连接被长事务占用时，db.q() 走独立读连接仍能秒级返回。
+
+    复现本次线上事故：扫描长事务独占连接 → browse/status 等读接口全部挂死。
+    修复后读连接与写连接物理分离，WAL 下互不阻塞。
+    """
+    entered = threading.Event()
+    release = threading.Event()
+
+    def long_writer():
+        # 持 write_lock + 写连接，开一个事务并保持 2 秒
+        with db.write_lock():
+            conn = db.get()
+            conn.execute("BEGIN")
+            conn.execute("INSERT INTO files(rel_path, filename, ext, mtime, size, status) "
+                         "VALUES('__lock_probe__.txt','x','.txt',0,1,'ok')")
+            entered.set()
+            release.wait(timeout=3)
+            conn.rollback()
+
+    t = threading.Thread(target=long_writer, daemon=True)
+    t.start()
+    assert entered.wait(timeout=2), "写线程未进入事务"
+
+    # 读接口此刻必须不被阻塞（读连接在 WAL 下看到已提交快照）
+    t0 = time.time()
+    rows = db.q("SELECT COUNT(*) AS n FROM files")
+    elapsed = time.time() - t0
+    release.set()
+    t.join(timeout=3)
+    assert elapsed < 1.0, f"读查询被写事务阻塞了 {elapsed:.2f}s（读写未分离）"
+    assert rows[0]["n"] >= 0
+    assert db.get() is not db._get_read(), "读写必须是两条独立连接"
+
+
+def test_browse_api_returns_during_scan_like_lock(env):
+    """ browSE 接口在写事务占用期间仍返回 200（端到端验证，非仅 db 层）。"""
+    entered = threading.Event()
+    release = threading.Event()
+
+    def long_writer():
+        with db.write_lock():
+            conn = db.get()
+            conn.execute("BEGIN")
+            conn.execute("INSERT INTO files(rel_path, filename, ext, mtime, size, status) "
+                         "VALUES('__lock_probe2__.txt','x','.txt',0,1,'ok')")
+            entered.set()
+            release.wait(timeout=3)
+            conn.rollback()
+
+    t = threading.Thread(target=long_writer, daemon=True)
+    t.start()
+    assert entered.wait(timeout=2)
+
+    c = TestClient(app, raise_server_exceptions=False)
+    t0 = time.time()
+    r = c.get("/api/browse", params={"path": ""})
+    elapsed = time.time() - t0
+    release.set()
+    t.join(timeout=3)
+    assert r.status_code == 200, r.text
+    assert elapsed < 1.5, f"browse 被写事务阻塞了 {elapsed:.2f}s"

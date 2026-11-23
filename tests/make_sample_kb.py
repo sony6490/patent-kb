@@ -2,7 +2,8 @@
 import sys
 from pathlib import Path
 
-target = Path(sys.argv[1] if len(sys.argv) > 1 else "D:/WorkBuddy/2026-11-18-15-20-21/patent-kb/tests/sample_kb")
+# 输出目录：命令行参数，默认脚本同级的 sample_kb/（不绑定任何本机路径）
+target = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent / "sample_kb")
 target.mkdir(parents=True, exist_ok=True)
 sub = target / "无线充电项目"
 sub.mkdir(exist_ok=True)

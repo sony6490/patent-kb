@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>patent-kb · 专利项目知识库</title>
+<title>专利项目经验知识库-by WB</title>
 <style>
 :root{
   --bg:#14161a;--bg2:#1c1f26;--bg3:#242832;--border:#333a46;
@@ -93,12 +93,43 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
 th{color:var(--text2);font-size:12px}
 td.err{color:var(--red);font-size:12px}
+/* 折叠面板（失败/跳过文件明细） */
+.acc{display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px;margin:-8px;border-radius:8px;
+  flex-wrap:wrap;user-select:none;transition:background .15s}
+.acc:hover{background:var(--bg3)}
+.acc:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.acc-arrow{color:var(--accent);font-size:12px;width:12px;text-align:center;transition:transform .2s}
+.acc-title{font-weight:600;color:var(--text)}
+.acc-tags{display:flex;gap:6px;flex-wrap:wrap}
+.acc-tags .badge{margin-left:0}
+.acc-act{color:var(--accent);font-size:12px;margin-left:auto;white-space:nowrap}
+.ftabs{display:flex;gap:6px;margin:12px 0 8px;flex-wrap:wrap}
+.ftab{background:var(--bg3);color:var(--text2);border:1px solid var(--border);
+  padding:4px 12px;font-size:12px;border-radius:14px}
+.ftab:hover{background:var(--border);color:var(--text)}
+.ftab.on{background:rgba(79,140,255,.16);border-color:var(--accent);color:var(--accent);font-weight:600}
+.failtable{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+.failtable table{margin:0}
+.failtable thead th{position:sticky;top:0;background:var(--bg2);z-index:1}
+.failtable td.fp{max-width:460px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.failtable td.err{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bar{height:14px;background:var(--bg3);border-radius:4px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
 .section-title{margin:22px 0 10px;font-size:15px;font-weight:600;color:var(--text)}
 .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:r 1s linear infinite;vertical-align:-3px;margin-right:8px}
 @keyframes r{to{transform:rotate(360deg)}}
 .est-bar{background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.3);border-radius:8px;padding:10px 14px;color:var(--text2);font-size:13px;margin:10px 0;display:none}
+/* 回到顶部 */
+.backtop{position:fixed;right:24px;bottom:24px;width:48px;height:48px;padding:0;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg3);border:1px solid var(--border);color:var(--accent);
+  opacity:0;visibility:hidden;pointer-events:none;transform:translateY(10px);z-index:40;
+  transition:opacity .28s ease,transform .28s ease,visibility .28s ease,background .2s,border-color .2s,box-shadow .2s}
+.backtop.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0)}
+.backtop.show:hover{transform:translateY(-3px);background:var(--bg2);border-color:var(--accent);
+  box-shadow:0 6px 18px rgba(0,0,0,.45)}
+.backtop.show:active{transform:translateY(0) scale(.95)}
+.backtop svg{width:20px;height:20px;display:block}
 mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;padding:0 1px}
 </style>
 </head>
@@ -119,7 +150,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
     <div class="row" style="margin-top:16px">
       <button onclick="wizNext()">下一步</button>
     </div>
-    <div class="hint">patent-kb 将在该文件夹下创建 .kbindex/ 索引库（随文件夹整体迁移，删除即可重建）。</div>
+    <div class="hint">专利项目经验知识库-by WB 将在该文件夹下创建 .kbindex/ 索引库（随文件夹整体迁移，删除即可重建）。</div>
   </div>
   <div class="card" id="wstep2" style="display:none">
     <h3>配置大模型 API（OpenAI 兼容）</h3>
@@ -158,7 +189,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
 <!-- ====== 主界面 ====== -->
 <div id="main" style="display:none">
   <div class="topbar">
-    <span class="logo">patent-kb</span>
+    <span class="logo">专利项目经验知识库-by WB</span>
     <span class="kb" id="t-kbpath"></span>
     <span class="usage" id="t-usage"></span>
     <button class="ghost" style="padding:4px 12px;font-size:12px" onclick="refreshTop()">刷新</button>
@@ -166,7 +197,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
   <div class="tabs">
     <button class="tab active" data-p="p-search" onclick="switchTab('p-search',this)">检索</button>
     <button class="tab" data-p="p-analyze" onclick="switchTab('p-analyze',this)">分析</button>
-    <button class="tab" data-p="p-browse" onclick="switchTab('p-browse',this)">浏览</button>
+    <button class="tab" data-p="p-browse" onclick="switchTab('p-browse',this);loadBrowse(CUR_BROWSE||'')">浏览</button>
     <button class="tab" data-p="p-settings" onclick="switchTab('p-settings',this);loadSettings()">设置</button>
   </div>
 
@@ -287,6 +318,13 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
   </div>
 </div>
 
+<!-- 回到顶部（四个页面通用；滚过一屏后出现） -->
+<button id="backtop" class="backtop" type="button" aria-label="回到顶部" title="回到顶部" onclick="scrollToTopSmooth()">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 19V6"></path><path d="M5.5 12.5 12 6l6.5 6.5"></path>
+  </svg>
+</button>
+
 <!-- 来源浮层 -->
 <div class="modal-mask" id="modal" onclick="if(event.target===this)closeModal()">
   <div class="modal">
@@ -306,7 +344,16 @@ const api = (p, opt) => {
   if (opt.body) {
     opt.headers = Object.assign({}, opt.headers, {'Content-Type': 'application/json'});
   }
-  return fetch('/api' + p, opt).then(async r => {
+  // 超时保护：默认 60s，防止接口挂起导致页面永久空白；长调用用 opt.timeout 覆盖
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), opt.timeout || 60000);
+  return fetch('/api' + p, Object.assign({}, opt, {signal: ctl.signal}))
+    .catch(err => {
+      if (err && err.name === 'AbortError') throw new Error(`请求超时（${Math.round((opt.timeout||60000)/1000)}秒），请重试`);
+      throw err;
+    })
+    .finally(() => clearTimeout(timer))
+    .then(async r => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       let msg = d.detail || r.statusText || ('HTTP ' + r.status);
@@ -351,7 +398,7 @@ let W = {step:1};
 function previewKb(){
   const p = $('w-kbpath').value.trim();
   if (!p) return alert('请输入路径');
-  api('/wizard/preview', {method:'POST', body:JSON.stringify({kb_path:p})})
+  api('/wizard/preview', {method:'POST', body:JSON.stringify({kb_path:p}), timeout:600000})
     .then(d=>{
       $('w-preview').innerHTML = `可索引文件 <b>${d.total}</b> 个：` +
         d.by_ext.slice(0,12).map(([e,n])=>`${esc(e)}×${n}`).join('，');
@@ -417,7 +464,7 @@ async function wizFinish(){
       llm:{base_url:$('w-baseurl').value.trim(), api_key:$('w-apikey').value.trim(),
            model:$('w-model').value.trim(), lite_model:$('w-litemodel').value.trim()}
     })});
-    const rep = await api('/admin/index/scan',{method:'POST', body:JSON.stringify({full:false})});
+    const rep = await api('/admin/index/scan',{method:'POST', body:JSON.stringify({full:false}), timeout:7200000});
     $('w-scanresult').innerHTML = `✓ 索引完成：新增 ${rep.added}，更新 ${rep.updated}，失败 ${rep.failed}，跳过 ${rep.skipped}，不支持 ${rep.unsupported}`;
     setTimeout(()=>location.reload(), 1200);
   }catch(e){
@@ -431,7 +478,43 @@ function switchTab(id, btn){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   $(id).classList.add('active'); btn.classList.add('active');
+  updateBackTop();   // 切换页面后立即校正「回到顶部」显隐
 }
+
+// ---------- 回到顶部（检索 / 分析 / 浏览 / 设置 四页均生效） ----------
+const BACKTOP_PAGES = ['p-search','p-analyze','p-browse','p-settings'];
+let _btAnimId = 0, _btTick = false;
+function updateBackTop(){
+  const bt = $('backtop'); if(!bt) return;
+  const ap = document.querySelector('.page.active');
+  const onPage = !!ap && BACKTOP_PAGES.includes(ap.id);
+  const y = window.scrollY || document.documentElement.scrollTop || 0;
+  // 滚过一屏（视口高度）才出现
+  bt.classList.toggle('show', onPage && y > window.innerHeight);
+}
+function scrollToTopSmooth(){
+  const start = window.scrollY || document.documentElement.scrollTop || 0;
+  if (start <= 0){ updateBackTop(); return; }
+  const DUR = 500, t0 = performance.now(), myId = ++_btAnimId;
+  const ease = t => 1 - Math.pow(1 - t, 3);       // easeOutCubic
+  const step = now => {
+    if (myId !== _btAnimId) return;                // 被用户滚动或新点击打断
+    const p = Math.min(1, (now - t0) / DUR);
+    window.scrollTo(0, Math.round(start * (1 - ease(p))));
+    if (p < 1) requestAnimationFrame(step);
+    else updateBackTop();                          // 到顶后淡出
+  };
+  requestAnimationFrame(step);
+}
+window.addEventListener('scroll', () => {
+  if (_btTick) return;
+  _btTick = true;
+  requestAnimationFrame(() => { _btTick = false; updateBackTop(); });
+}, {passive:true});
+window.addEventListener('resize', () => updateBackTop(), {passive:true});
+// 用户主动滚动/触摸时立即中断程序化滚动，避免抢滚
+['wheel','touchstart'].forEach(ev =>
+  window.addEventListener(ev, () => { _btAnimId++; }, {passive:true}));
 
 // ---------- search ----------
 function hlSnippet(s){
@@ -504,7 +587,7 @@ async function doAnalyze(){
   $('a-gobtn').disabled = true; $('a-results').style.display='none';
   $('a-est').style.display='block'; $('a-est').innerHTML='<span class="spin"></span>LLM 分析中（缓存命中则瞬间完成）...';
   try{
-    const r = await api('/analyze',{method:'POST', body:JSON.stringify({request_text:t, use_lite:$('a-lite').checked})});
+    const r = await api('/analyze',{method:'POST', body:JSON.stringify({request_text:t, use_lite:$('a-lite').checked}), timeout:300000});
     renderAnalyze(r);
     refreshTop();  // 分析后即时刷新今日累计/最近一次费用
     LAST_SESSION = {chunk_ids: r.chunk_ids || [], history: []};
@@ -561,7 +644,7 @@ async function doFollowup(){
   $('a-chat').innerHTML = prev + `<div style="margin-top:6px"><b>问：</b>${esc(q)} <span class="spin"></span></div>`;
   try{
     const r = await api('/analyze',{method:'POST', body:JSON.stringify({
-      request_text:q, use_lite:$('a-lite').checked, session:LAST_SESSION})});
+      request_text:q, use_lite:$('a-lite').checked, session:LAST_SESSION}), timeout:300000});
     LAST_SESSION.history = (LAST_SESSION.history||[]).concat([{q, a:compressResult(r)}]).slice(-3);
     renderAnalyze(r);
     refreshTop();  // 追问后即时刷新费用
@@ -582,7 +665,11 @@ function showSources(sources){
 }
 
 // ---------- browse ----------
+let CUR_BROWSE = '';
 async function loadBrowse(path){
+  CUR_BROWSE = path || '';
+  $('b-tree').innerHTML = '<div class="hint">加载中…</div>';
+  $('b-files').innerHTML = '<div class="hint">加载中…</div>';
   try{
     const d = await api(`/browse?path=${encodeURIComponent(path)}`);
     let tree = path ? `<div class="dir back" onclick="loadBrowse('${esc(path.split('/').slice(0,-1).join('/'))}')">📁 ..（返回上级）</div>` :
@@ -600,7 +687,10 @@ async function loadBrowse(path){
         ${f.status==='skipped_no_text'&&f.file_id?`<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();doOcr(${f.file_id})">OCR</button>`:''}
         <span class="sz">${fmtSize(f.size)}</span>
       </div>`).join('') : '<div class="hint">空目录（或无文件）</div>';
-  }catch(e){ $('b-files').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+  }catch(e){
+    $('b-tree').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span><div class="hint" style="margin-top:6px">重新点击「浏览」标签即可重试</div>`;
+    $('b-files').innerHTML = '<div class="hint">目录加载失败</div>';
+  }
 }
 async function previewFile(fileId, relPath, hasId){
   if(!hasId){ alert('该文件尚未索引，请先在设置页执行扫描'); return; }
@@ -617,7 +707,7 @@ async function previewFile(fileId, relPath, hasId){
 async function doOcr(fileId){
   if(!confirm('对此文件执行本地 OCR？仅识别该文件，不批跑全库。')) return;
   try{
-    const r = await api('/admin/ocr',{method:'POST', body:JSON.stringify({file_ids:[fileId]})});
+    const r = await api('/admin/ocr',{method:'POST', body:JSON.stringify({file_ids:[fileId]}), timeout:600000});
     const x = r.results[0];
     alert(x.ok ? `✓ OCR 完成，生成 ${x.chunks} 个片段，内容已可检索` : `✗ ${x.error}`);
   }catch(e){ alert('✗ ' + e.message); }
@@ -644,7 +734,7 @@ async function previewNewKb(){
   if(!p){ alert('请输入新路径'); return; }
   $('c-kbresult').innerHTML = '<span class="spin"></span>预览中...';
   try{
-    const d = await api('/wizard/preview',{method:'POST', body:JSON.stringify({kb_path:p})});
+    const d = await api('/wizard/preview',{method:'POST', body:JSON.stringify({kb_path:p}), timeout:600000});
     const exts = (d.by_ext||[]).slice(0,6).map(x=>`${x[0]}:${x[1]}`).join(' · ');
     $('c-kbresult').innerHTML = `<span style="color:var(--green)">✓ ${d.total} 个可索引文件${exts?'（'+exts+'）':''}</span>`;
   }catch(e){
@@ -679,13 +769,10 @@ function loadSettings(){
     $('c-warn').value = c.cost?.warn_tokens_per_call??8000;
     $('c-ocr').checked = !!c.features?.ocr;
   });
-  api('/admin/index/status').then(s=>{ $('c-scanstat').textContent =
-    `共 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped} · 最后索引 ${s.last_scan_at||'—'}`; });
-  api('/admin/files').then(d=>{
-    const bad = d.files.filter(f=>['failed','unsupported','skipped_no_text'].includes(f.status));
-    $('c-failures').innerHTML = bad.length ? `<table><tr><th>文件</th><th>状态</th><th>说明</th></tr>` +
-      bad.map(f=>`<tr><td>${esc(f.rel_path)}</td><td>${esc(f.status)}</td><td class="err">${esc(f.error_msg||'')}</td></tr>`).join('') +
-      '</table>' : '<div class="hint">无失败/跳过文件 ✓</div>';
+  api('/admin/index/status').then(s=>{
+    $('c-scanstat').textContent =
+      `共 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped} · 最后索引 ${s.last_scan_at||'—'}`;
+    loadFailures(s);   // 只用它拿各类计数，明细默认折叠不渲染
   });
   api('/admin/usage?days=7').then(d=>{
     const rows = d.usage, c = d.cost || {};
@@ -716,10 +803,97 @@ async function saveOcrCfg(){
 async function doScan(full){
   $('c-scanstat').innerHTML = '<span class="spin"></span>扫描中...';
   try{
-    const rep = await api('/admin/index/scan',{method:'POST', body:JSON.stringify({full})});
+    const rep = await api('/admin/index/scan',{method:'POST', body:JSON.stringify({full}), timeout:7200000});
     $('c-scanstat').textContent = `✓ 新增 ${rep.added} · 更新 ${rep.updated} · 未变 ${rep.unchanged} · 移除 ${rep.removed} · 失败 ${rep.failed} · 跳过 ${rep.skipped}`;
     refreshTop(); loadSettings();
   }catch(e){ $('c-scanstat').textContent = e.message; }
+}
+
+// ---------- 失败 / 跳过文件（默认折叠，点击才展开明细） ----------
+const FAIL_LABEL = {failed:'失败', skipped_no_text:'无文字层', unsupported:'不支持'};
+const FAIL_ORDER = ['failed','skipped_no_text','unsupported'];
+const FAIL_NOTE = {
+  failed:'解析失败：文件可能损坏或被加密，需人工确认',
+  skipped_no_text:'无文字层（扫描件/纯图），OCR 识别后即可检索',
+  unsupported:'老格式原件（.doc/.xls/.ppt）不可直接检索，多数已由转换副本收录，其余建议另存为新格式后重扫'
+};
+let FAIL_STAT = {}, FAIL_OPEN = false, FAIL_TAB = 'failed', FAIL_CACHE = {};
+
+function failTotal(){ return FAIL_ORDER.reduce((a,k)=>a+(FAIL_STAT[k]||0),0); }
+
+// 用索引 status 的计数初始化，明细一律不预先渲染
+function loadFailures(s){
+  FAIL_STAT = {
+    failed: Number(s.failed||0),
+    skipped_no_text: Number(s.skipped||0),
+    unsupported: Number(s.unsupported||0)
+  };
+  FAIL_CACHE = {};                        // 计数已变，旧明细作废
+  FAIL_OPEN = false;                      // 每次进入设置页都回到折叠态
+  FAIL_TAB = FAIL_ORDER.find(k=>FAIL_STAT[k]>0) || 'failed';
+  renderFailures();
+}
+
+function renderFailures(){
+  const box = $('c-failures'); if(!box) return;
+  const total = failTotal();
+  if(!total){ box.innerHTML = '<div class="hint">无失败/跳过文件 ✓</div>'; return; }
+  const tags = FAIL_ORDER.filter(k=>FAIL_STAT[k]>0).map(k=>
+    `<span class="badge ${k==='failed'?'err':'inf'}">${FAIL_LABEL[k]} ${FAIL_STAT[k].toLocaleString()}</span>`).join('');
+  box.innerHTML = `
+    <div class="acc" role="button" tabindex="0" aria-expanded="${FAIL_OPEN}"
+         onclick="toggleFailures()"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFailures()}">
+      <span class="acc-arrow">${FAIL_OPEN?'▾':'▸'}</span>
+      <span class="acc-title">共 ${total.toLocaleString()} 件待关注</span>
+      <span class="acc-tags">${tags}</span>
+      <span class="acc-act">${FAIL_OPEN?'收起明细':'点击查看明细'}</span>
+    </div>
+    ${FAIL_OPEN ? failBodyHtml() : ''}`;
+  if(FAIL_OPEN) loadFailList();
+}
+
+function failBodyHtml(){
+  const tabs = FAIL_ORDER.filter(k=>FAIL_STAT[k]>0).map(k=>
+    `<button class="ftab ${FAIL_TAB===k?'on':''}"
+       onclick="event.stopPropagation();switchFailTab('${k}')">${FAIL_LABEL[k]} ${FAIL_STAT[k].toLocaleString()}</button>`
+  ).join('');
+  return `<div class="ftabs">${tabs}</div>
+    <div id="c-faillist"><div class="hint"><span class="spin"></span>加载中…</div></div>`;
+}
+
+function toggleFailures(){ FAIL_OPEN = !FAIL_OPEN; renderFailures(); }
+function switchFailTab(k){ if(FAIL_TAB===k) return; FAIL_TAB = k; renderFailures(); }
+
+async function loadFailList(){
+  const st = FAIL_TAB;
+  if(!$('c-faillist')) return;
+  if(FAIL_CACHE[st]){ paintFailList(st, FAIL_CACHE[st]); return; }
+  try{
+    // 按状态分开取，避免以前 limit=200 被 failed 占满、看不到跳过的件
+    const d = await api(`/admin/files?status=${encodeURIComponent(st)}&limit=200`);
+    FAIL_CACHE[st] = d.files || [];
+    if($('c-faillist') && FAIL_TAB === st) paintFailList(st, FAIL_CACHE[st]);
+  }catch(e){
+    if($('c-faillist')) $('c-faillist').innerHTML = `<div style="color:var(--red)">${esc(e.message)}</div>`;
+  }
+}
+
+function paintFailList(st, rows){
+  const box = $('c-faillist'); if(!box) return;
+  const total = FAIL_STAT[st] || 0;
+  if(!rows.length){ box.innerHTML = '<div class="hint">该类别下暂无文件</div>'; return; }
+  const head = total > rows.length
+    ? `共 ${total.toLocaleString()} 件，仅列出前 ${rows.length} 件（按路径排序）`
+    : `共 ${rows.length} 件`;
+  box.innerHTML = `<div class="hint" style="margin-bottom:8px">${head} · ${FAIL_NOTE[st]}</div>
+    <div class="failtable"><table><thead><tr><th>文件</th><th>说明</th></tr></thead><tbody>` +
+    rows.map(f=>{
+      const msg = f.error_msg || FAIL_NOTE[st];
+      return `<tr><td class="fp" title="${esc(f.rel_path)}">${esc(f.rel_path)}</td>` +
+             `<td class="err" title="${esc(msg)}">${esc(msg)}</td></tr>`;
+    }).join('') +
+    '</tbody></table></div>';
 }
 
 // ---------- modal ----------
@@ -733,6 +907,7 @@ function openModal(title, body, fileId){
 }
 function closeModal(){ $('modal').classList.remove('show'); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+updateBackTop();   // 初次进入（含浏览器恢复滚动位置）校正一次
 </script>
 </body>
 </html>

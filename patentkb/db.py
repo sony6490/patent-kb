@@ -6,7 +6,8 @@ from typing import Any
 
 from . import config
 
-_conn: sqlite3.Connection | None = None
+_conn: sqlite3.Connection | None = None       # 写连接：仅由 transaction()/x() 在 _lock 内使用
+_read_conn: sqlite3.Connection | None = None  # 读连接：独立于写连接，WAL 下读已提交快照，不被长事务扫描阻塞
 _lock = threading.Lock()
 _kb_path: str = ""
 
@@ -65,14 +66,26 @@ CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(ts);
 
 
 def init(kb_path: str) -> sqlite3.Connection:
-    """初始化（或复用）数据库连接。kb_path 为知识库绝对路径。"""
-    global _conn, _kb_path
+    """初始化（或复用）数据库连接。kb_path 为知识库绝对路径。
+
+    建立两条独立连接：写连接供索引/缓存写入，读连接供 HTTP 读接口。
+    WAL 模式下二者可并发：扫描长事务占用写连接时，读接口仍能查到已提交数据。
+    """
+    global _conn, _read_conn, _kb_path
     with _lock:
         if _conn is not None and _kb_path == kb_path:
             return _conn
         idx_dir = Path(kb_path) / ".kbindex"
         idx_dir.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(idx_dir / "index.db"), check_same_thread=False)
+        db_file = str(idx_dir / "index.db")
+
+        # 先关掉旧连接（切库场景），避免泄漏与文件句柄占用
+        if _conn is not None:
+            _conn.close()
+        if _read_conn is not None:
+            _read_conn.close()
+
+        conn = sqlite3.connect(db_file, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -84,20 +97,39 @@ def init(kb_path: str) -> sqlite3.Connection:
             conn.execute("ALTER TABLE usage_log ADD COLUMN cost REAL NOT NULL DEFAULT 0")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
+
+        # 独立读连接：只设 read 相关 PRAGMA，不参与任何写事务。
+        # busy_timeout 保证建库瞬间与写连接初始化不冲突。
+        rconn = sqlite3.connect(db_file, check_same_thread=False, timeout=30)
+        rconn.row_factory = sqlite3.Row
+        rconn.execute("PRAGMA busy_timeout=30000")
+
         _conn = conn
+        _read_conn = rconn
         _kb_path = kb_path
         return conn
 
 
 def get() -> sqlite3.Connection:
-    """获取当前连接；未初始化时按 config 中的 kb_path 初始化。"""
+    """获取写连接；未初始化时按 config 中的 kb_path 初始化。"""
     global _conn
     if _conn is None:
         cfg = config.load_config()
         if not cfg.get("kb_path"):
             raise RuntimeError("知识库未初始化，请先完成设置向导")
-        return init(cfg["kb_path"])
+        init(cfg["kb_path"])
     return _conn
+
+
+def _get_read() -> sqlite3.Connection:
+    """获取读连接；未初始化时按 config 中的 kb_path 初始化。"""
+    global _read_conn
+    if _read_conn is None:
+        cfg = config.load_config()
+        if not cfg.get("kb_path"):
+            raise RuntimeError("知识库未初始化，请先完成设置向导")
+        init(cfg["kb_path"])
+    return _read_conn
 
 
 def write_lock() -> threading.Lock:
@@ -105,8 +137,12 @@ def write_lock() -> threading.Lock:
 
 
 def q(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
-    """只读查询，返回 dict 列表。"""
-    cur = get().execute(sql, params)
+    """只读查询，走独立读连接，返回 dict 列表。
+
+    关键：绝不使用写连接——扫描线程会长时间占用写连接做批量事务，
+    若读接口共用它会导致 browse/status 等全部挂死（本次修复的根因）。
+    """
+    cur = _get_read().execute(sql, params)
     return [dict(r) for r in cur.fetchall()]
 
 
@@ -141,10 +177,13 @@ def transaction():
 
 
 def reset() -> None:
-    """切换知识库时关闭旧连接。"""
-    global _conn, _kb_path
+    """切换知识库时关闭旧连接（写连接与读连接都要关）。"""
+    global _conn, _read_conn, _kb_path
     with _lock:
         if _conn is not None:
             _conn.close()
             _conn = None
-            _kb_path = ""
+        if _read_conn is not None:
+            _read_conn.close()
+            _read_conn = None
+        _kb_path = ""

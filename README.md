@@ -1,4 +1,4 @@
-# patent-kb
+# 专利项目经验知识库-by WB（原 patent-kb）
 
 本地优先的**专利咨询项目知识库工具**：选择本地文件夹作为知识库，网页浏览/检索/下载历史文件；输入新需求，基于知识库内容生成关键词扩展、IPC/CPC 分类号扩展（含解释）与专利检索式——**每一项生成内容都带可点击的原文来源锚点**。
 
@@ -82,3 +82,27 @@ uv run pytest tests/test_regression.py -q
 ## 配置文件
 
 `~/.patentkb/config.json`（环境变量 `PATENTKB_CONFIG` 可改位置）。全部字段见 `docs/DESIGN.md`。
+
+## 提交前脱敏自检
+
+本仓库会同步到 GitHub，**不要提交任何本机特有信息**（用户名、盘符绝对路径、私有目录名、客户目录结构）。
+
+```powershell
+uv run python scripts/check_desensitize.py          # 检查已跟踪文件
+uv run python scripts/check_desensitize.py --staged # 只查暂存区
+```
+
+命中即退出码 1 并打印 `文件:行号 [类型] 内容`。建议装成本地钩子自动拦截：
+
+```sh
+printf '#!/bin/sh\nexec "$(git rev-parse --show-toplevel)/.venv/Scripts/python.exe" "$(git rev-parse --show-toplevel)/scripts/check_desensitize.py" --staged\n' > .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+运维脚本（`scripts/`）的知识库路径一律运行期传入，不写入代码：
+
+```powershell
+python scripts/p1_ocr_driver.py <知识库根目录>   # 或设 PATENTKB_KB_ROOT
+```
+
+`p1_ocr_driver.py` 在服务已启动时可自动从 `/api/wizard/status` 取 `kb_path`，无需任何参数。

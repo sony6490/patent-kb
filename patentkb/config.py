@@ -25,7 +25,13 @@ DEFAULTS: dict[str, Any] = {
     "features": {"embedding": False, "vision": False, "ocr": False},
     "ocr": {"engine": "rapidocr", "dpi": 200, "max_pages_per_file": 30, "min_confidence": 0.5},
     "indexer": {
-        "exclude_dirs": [".kbindex", ".git", "node_modules", "__pycache__", "$RECYCLE.BIN", "System Volume Information"],
+        "exclude_dirs": [
+            ".kbindex", ".git", "node_modules", "__pycache__",
+            "$RECYCLE.BIN", "System Volume Information",
+            # 工具/软件目录，非专利业务资料：避免把代码库和缓存灌进知识库
+            "patent-kb", ".venv", "venv", ".obsidian", ".workbuddy",
+            "vault-audit", "v2rayN-Core", ".idea", ".vscode",
+        ],
         "exclude_exts": [".tmp", ".ini", ".lnk", ".db"],
         "max_rows_per_sheet": 5000,
         "max_pdf_pages": 300,
