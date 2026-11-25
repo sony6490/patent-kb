@@ -473,3 +473,129 @@ def test_browse_api_returns_during_scan_like_lock(env):
     t.join(timeout=3)
     assert r.status_code == 200, r.text
     assert elapsed < 1.5, f"browse 被写事务阻塞了 {elapsed:.2f}s"
+
+
+# ---------- 检索页整合：目录浏览 + 目录范围检索 ----------
+
+def test_browse_returns_crumbs_and_parent(env):
+    """面包屑与上级由后端给出，前端不再自己拆路径（深路径/特殊字符更稳）。"""
+    c = TestClient(app)
+    root = c.get("/api/browse", params={"path": ""}).json()
+    assert root["current"] == ""
+    assert root["parent"] is None
+    assert [x["name"] for x in root["crumbs"]] == ["知识库"]
+    assert {d["name"] for d in root["dirs"]} == {"sub"}
+
+    sub = c.get("/api/browse", params={"path": "sub"}).json()
+    assert sub["current"] == "sub"
+    assert sub["parent"] == ""
+    assert [(x["name"], x["rel_path"]) for x in sub["crumbs"]] == [("知识库", ""), ("sub", "sub")]
+    assert [f["rel_path"] for f in sub["files"]] == ["sub/ir.txt"]
+
+
+def test_browse_skips_kbindex_directories(env):
+    """索引库及其备份不是用户资料，不应出现在目录浏览里。"""
+    (env["kb"] / ".kbindex.bak-probe").mkdir()
+    c = TestClient(app)
+    dirs = [d["name"] for d in c.get("/api/browse", params={"path": ""}).json()["dirs"]]
+    assert ".kbindex.bak-probe" not in dirs
+
+
+def test_browse_rejects_traversal(env):
+    c = TestClient(app)
+    assert c.get("/api/browse", params={"path": "../../etc"}).status_code == 400
+
+
+def test_search_scope_limits_to_subtree(env):
+    """path 限定只召回该目录及其子目录，且 scope 原样回显给前端。"""
+    c = TestClient(app)
+    every = c.get("/api/search", params={"q": "校准", "limit": 20}).json()
+    assert every["scope"] == ""
+    assert every["hits"], "样本库应有命中"
+
+    only = c.get("/api/search", params={"q": "校准", "limit": 20, "path": "sub"}).json()
+    assert only["scope"] == "sub"
+    assert only["hits"]
+    assert all(h["rel_path"].startswith("sub/") for h in only["hits"])
+
+    assert c.get("/api/search", params={"q": "无线充电", "limit": 20, "path": "sub"}).json()["hits"] == []
+
+
+def test_search_scope_prefix_boundary_and_like_escape(env):
+    """sub 不能召回 sub2；目录名里的 _ 不能当 LIKE 通配符。"""
+    kb = env["kb"]
+    for d in ("sub2", "a_b", "axb"):
+        (kb / d).mkdir()
+        (kb / d / "y.txt").write_text("红外校准", encoding="utf-8")
+    indexer.scan(str(kb), full=False)
+    c = TestClient(app)
+
+    hits = c.get("/api/search", params={"q": "校准", "limit": 50, "path": "sub"}).json()["hits"]
+    assert hits and all(h["rel_path"].startswith("sub/") for h in hits)
+    assert not any(h["rel_path"].startswith("sub2/") for h in hits), "同级相似目录被误召回"
+
+    under = c.get("/api/search", params={"q": "校准", "limit": 50, "path": "a_b"}).json()["hits"]
+    assert under and all(h["rel_path"].startswith("a_b/") for h in under), "_ 被当成通配符"
+
+
+# ---------- 检索页整合：目录浏览 + 目录范围检索 ----------
+
+def test_browse_returns_crumbs_and_parent(env):
+    """面包屑与上级由后端给出，前端不再自己拆路径（深路径/特殊字符更稳）。"""
+    c = TestClient(app)
+    root = c.get("/api/browse", params={"path": ""}).json()
+    assert root["current"] == ""
+    assert root["parent"] is None
+    assert [x["name"] for x in root["crumbs"]] == ["知识库"]
+    assert {d["name"] for d in root["dirs"]} == {"sub"}
+
+    sub = c.get("/api/browse", params={"path": "sub"}).json()
+    assert sub["current"] == "sub"
+    assert sub["parent"] == ""
+    assert [(x["name"], x["rel_path"]) for x in sub["crumbs"]] == [("知识库", ""), ("sub", "sub")]
+    assert [f["rel_path"] for f in sub["files"]] == ["sub/ir.txt"]
+
+
+def test_browse_skips_kbindex_directories(env):
+    """索引库及其备份不是用户资料，不应出现在目录浏览里。"""
+    (env["kb"] / ".kbindex.bak-probe").mkdir()
+    c = TestClient(app)
+    dirs = [d["name"] for d in c.get("/api/browse", params={"path": ""}).json()["dirs"]]
+    assert ".kbindex.bak-probe" not in dirs
+
+
+def test_browse_rejects_traversal(env):
+    c = TestClient(app)
+    assert c.get("/api/browse", params={"path": "../../etc"}).status_code == 400
+
+
+def test_search_scope_limits_to_subtree(env):
+    """path 限定只召回该目录及其子目录，且 scope 原样回显给前端。"""
+    c = TestClient(app)
+    every = c.get("/api/search", params={"q": "校准", "limit": 20}).json()
+    assert every["scope"] == ""
+    assert every["hits"], "样本库应有命中"
+
+    only = c.get("/api/search", params={"q": "校准", "limit": 20, "path": "sub"}).json()
+    assert only["scope"] == "sub"
+    assert only["hits"]
+    assert all(h["rel_path"].startswith("sub/") for h in only["hits"])
+
+    assert c.get("/api/search", params={"q": "无线充电", "limit": 20, "path": "sub"}).json()["hits"] == []
+
+
+def test_search_scope_prefix_boundary_and_like_escape(env):
+    """sub 不能召回 sub2；目录名里的 _ 不能当 LIKE 通配符。"""
+    kb = env["kb"]
+    for d in ("sub2", "a_b", "axb"):
+        (kb / d).mkdir()
+        (kb / d / "y.txt").write_text("红外校准", encoding="utf-8")
+    indexer.scan(str(kb), full=False)
+    c = TestClient(app)
+
+    hits = c.get("/api/search", params={"q": "校准", "limit": 50, "path": "sub"}).json()["hits"]
+    assert hits and all(h["rel_path"].startswith("sub/") for h in hits)
+    assert not any(h["rel_path"].startswith("sub2/") for h in hits), "同级相似目录被误召回"
+
+    under = c.get("/api/search", params={"q": "校准", "limit": 50, "path": "a_b"}).json()["hits"]
+    assert under and all(h["rel_path"].startswith("a_b/") for h in under), "_ 被当成通配符"

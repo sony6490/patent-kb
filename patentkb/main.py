@@ -215,8 +215,11 @@ def browse(path: str = ""):
     cfg = config.load_config()
     root = Path(cfg["kb_path"]).resolve()
     exclude = set(cfg.get("indexer", {}).get("exclude_dirs", []))
-    target = (root / path).resolve() if path else root
-    if not str(target).startswith(str(root)):
+    rel = (path or "").strip("/")
+    target = (root / rel).resolve() if rel else root
+    try:
+        target.relative_to(root)      # 比 startswith 严格：/a/b 不会放过 /a/bc
+    except ValueError:
         raise HTTPException(400, "非法路径")
     if not target.is_dir():
         raise HTTPException(404, "目录不存在")
@@ -224,7 +227,8 @@ def browse(path: str = ""):
     dirs, files = [], []
     try:
         for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
-            if entry.name in exclude:
+            # .kbindex* 是索引库及其备份，不是用户资料，浏览时不展示
+            if entry.name in exclude or entry.name.startswith(".kbindex"):
                 continue
             if entry.is_dir():
                 dirs.append({"name": entry.name,
@@ -236,10 +240,16 @@ def browse(path: str = ""):
     except OSError as e:
         raise HTTPException(500, str(e))
 
-    # 附加索引状态
-    frows = db.q("SELECT id, ext, status, mtime, size, filename FROM files")
-    fmeta = {r["rel_path"]: r for r in db.q(
-        "SELECT id, rel_path, ext, status, mtime, size, filename FROM files")}
+    # 只取这一层的索引状态：原来每次切目录都全表拉 6 万行再建 dict
+    if rel:
+        esc = rel.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        meta = db.q("SELECT id, rel_path, ext, status FROM files "
+                    "WHERE rel_path LIKE ? ESCAPE '\\'", (esc + "/%",))
+    else:
+        meta = db.q("SELECT id, rel_path, ext, status FROM files "
+                    "WHERE instr(rel_path, '/') = 0")
+    fmeta = {r["rel_path"]: r for r in meta}
+
     out_files = []
     for f in files:
         m = fmeta.get(f["rel_path"])
@@ -249,7 +259,22 @@ def browse(path: str = ""):
             "ext": m["ext"] if m else Path(f["name"]).suffix.lower(),
             "status": m["status"] if m else "not_indexed",
         })
-    return {"current": path, "dirs": dirs, "files": out_files}
+
+    # 面包屑由后端给出，前端不必再猜路径拼接规则
+    segs = [s for s in rel.split("/") if s]
+    crumbs = [{"name": "知识库", "rel_path": ""}]
+    acc: list[str] = []
+    for s in segs:
+        acc.append(s)
+        crumbs.append({"name": s, "rel_path": "/".join(acc)})
+
+    return {
+        "current": rel,
+        "parent": "/".join(segs[:-1]) if segs else None,
+        "crumbs": crumbs,
+        "dirs": dirs,
+        "files": out_files,
+    }
 
 
 # ---------- 文件 ----------
@@ -314,11 +339,15 @@ def file_reveal(body: dict):
 # ---------- 检索 ----------
 
 @app.get("/api/search")
-def search(q: str = Query(..., min_length=1), limit: int = 20):
+def search(q: str = Query(..., min_length=1), limit: int = 20, path: str = ""):
     _require_init()
     if limit > 100:
         limit = 100
-    return {"hits": fts.decorate_hits(fts.search(q, limit))}
+    scope = (path or "").strip().strip("/")
+    return {
+        "hits": fts.decorate_hits(fts.search(q, limit, scope=scope)),
+        "scope": scope,
+    }
 
 
 # ---------- 分析 ----------

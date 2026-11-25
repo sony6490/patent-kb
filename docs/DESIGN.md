@@ -15,8 +15,8 @@
 | 功能 | 说明 |
 |---|---|
 | 首次设置向导 | 网页三步：选知识库文件夹 → 填 LLM API（base_url/api_key/model）→ 首次索引 |
-| 文件浏览 | 目录树浏览知识库，chunk 文本预览、下载、在资源管理器中定位 |
-| 关键词检索 | SQLite FTS5 全文检索（jieba 预分词），零 token 成本，返回高亮 snippet + 定位信息（页码/sheet/幻灯片/段落） |
+| 统一检索/浏览 | 「检索」页一个入口两种视图：关键字结果与目录视图可互相跳转。结果按文件聚合、给逐级目录路径与「定位到此目录」；目录视图含面包屑、上级/根目录导航、目录内文件名筛选；chunk 文本预览、下载、在资源管理器中定位 |
+| 关键词检索 | SQLite FTS5 全文检索（jieba 预分词），零 token 成本，返回高亮 snippet + 定位信息（页码/sheet/幻灯片/段落）；可按当前目录范围检索（含子目录） |
 | 需求分析扩展 | 输入新需求 → 检索 top-N 相关片段 → LLM 生成关键词扩展、IPC/CPC 分类号扩展及解释、专利检索式；每项带来源锚点 |
 | 增量索引 | mtime+size 增量扫描，解析结果零重复成本 |
 | 成本控制 | 需求 hash 缓存、执行前 token 预估、每日调用上限、轻量/主力双模型路由 |
@@ -149,11 +149,11 @@ api_key 回显掩码（`sk-***abc`），PUT 传空表示不变。
 | 端点 | 说明 |
 |---|---|
 | `GET /wizard/status` · `POST /wizard/setup` · `POST /config/test-llm` · `GET/PUT /config` | 向导与配置；setup 校验路径可写并建 .kbindex |
-| `GET /browse?path=` | 目录内容（过滤 exclude_dirs） |
+| `GET /browse?path=` | 目录内容（过滤 exclude_dirs 与 .kbindex*）；返回 `parent` / `crumbs` 面包屑，索引状态只查当前层 |
 | `GET /file/chunks?file_id=` | 文本预览 |
 | `GET /file/download?file_id=` | 下载（resolve 后必须仍在 kb_path 内，防穿越） |
 | `POST /file/reveal` | explorer /select 定位（本地版限定） |
-| `GET /search?q=&limit=` | jieba 分词，多词 AND 优先、无结果降级 OR；高亮 snippet |
+| `GET /search?q=&limit=&path=` | jieba 分词，多词 AND 优先、无结果降级 OR；`path` 限定某目录（含子目录，SQL 层过滤防漏召回）；高亮 snippet |
 | `POST /analyze/estimate` | 先免费检索后估 token，不调 LLM |
 | `POST /analyze` | 返回 keywords[] / classifications[] / patent_query / usage |
 | `POST /analyze/image` | MVP 预留：vision=false 时 403 + 开启指引 |
@@ -217,7 +217,7 @@ api_key 回显掩码（`sk-***abc`），PUT 传空表示不变。
 | 可追溯加强 | `verify_score()` 多维度校验（整体包含/分词覆盖/bigram 重叠）；非法引用 C99 显式告警；检索式加 verified/coverage；PROMPT_VERSION=v3-traceable | 字符串近似，非语义蕴含；透明展示数值供判断 |
 | 同义词召回 | 查询时双向扩展（内置种子表 + `<kb>/.kbindex/synonyms.json` 覆盖），无需重建索引 | 可控召回，非真语义检索；未登录词无效 |
 | 多轮追问 | 前端内存会话 + 复用同一批 chunk（不重跑 FTS），缓存键含历史摘要防串味 | 每轮计费；刷新页面会话清空 |
-| 按需 OCR | 默认关闭，浏览页对"无文字层"文件单文件触发；RapidOCR 本地 CPU；OCR 文本写现有 chunks 表、保持 status 不变防增量覆盖 | 需装 rapidocr（含 opencv，约百 MB）；低质量扫描识别率有限；单次≤20 文件 |
+| 按需 OCR | 默认关闭，在「检索」页目录视图对"无文字层"文件单文件触发；RapidOCR 本地 CPU；OCR 文本写现有 chunks 表、保持 status 不变防增量覆盖 | 需装 rapidocr（含 opencv，约百 MB）；低质量扫描识别率有限；单次≤20 文件 |
 
 **暂缓（需放宽极简约束才值得做）**：本地 embedding（首次下载 50–100MB 模型 + 索引膨胀 + 启动分支，除非接受模型文件与复杂度）、LLM 查询改写（破坏检索零成本）、tesseract（系统级安装违背双击即用）、云端 OCR（数据出本机 + 计费）。
 

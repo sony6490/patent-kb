@@ -179,8 +179,13 @@ def _fts_expr_groups(groups: list[list[str]], op: str) -> str:
     return f" {op} ".join(parts)
 
 
-def search(q: str, limit: int = 20, force_or: bool = False) -> list[dict[str, Any]]:
-    """FTS 检索：多词 AND 优先，无结果降级 OR（force_or 直接用 OR）；返回带 snippet 的命中。"""
+def search(q: str, limit: int = 20, force_or: bool = False,
+           scope: str = "") -> list[dict[str, Any]]:
+    """FTS 检索：多词 AND 优先，无结果降级 OR（force_or 直接用 OR）；返回带 snippet 的命中。
+
+    scope 为相对目录（如 "项目A/2025"），非空时只在该目录及其子目录内召回。
+    过滤放在 SQL 层而非结果层，避免"先取 Top-N 再筛"造成的漏召回。
+    """
     from . import db
 
     terms = query_terms(q)
@@ -190,15 +195,27 @@ def search(q: str, limit: int = 20, force_or: bool = False) -> list[dict[str, An
 
     groups = expand_groups(terms)  # 同义词查询时扩展，无需重建索引
     ops = ("OR",) if force_or else ("AND", "OR")
+
+    scope = (scope or "").strip().strip("/")
+    if scope:
+        # LIKE 通配符转义，防止目录名里的 _ 或 % 被当成模式
+        scope_like = (scope.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                      + "/%")
+        scope_sql = " AND f.file_id IN (SELECT id FROM files WHERE rel_path LIKE ? ESCAPE '\\')"
+    else:
+        scope_like, scope_sql = None, ""
+
     for op in ops:
         expr = _fts_expr_groups(groups, op)
         sql = (
             "SELECT f.chunk_id, f.file_id, "
             "snippet(fts_chunks, 0, '»', '«', '…', 12) AS snip, rank "
-            "FROM fts_chunks f WHERE fts_chunks MATCH ? ORDER BY rank LIMIT ?"
+            "FROM fts_chunks f WHERE fts_chunks MATCH ?" + scope_sql +
+            " ORDER BY rank LIMIT ?"
         )
+        params = (expr, scope_like, limit) if scope_like else (expr, limit)
         try:
-            rows = db.q(sql, (expr, limit))
+            rows = db.q(sql, params)
         except Exception:
             continue
         if rows:

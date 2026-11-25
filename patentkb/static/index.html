@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,"><!-- 避免浏览器请求不存在的 favicon 产生 404 -->
 <title>专利项目经验知识库-by WB</title>
 <style>
 :root{
@@ -77,17 +78,66 @@ label.fld span{display:block;color:var(--text2);font-size:12px;margin-bottom:5px
 .wizard .step-ind{display:flex;gap:8px;margin-bottom:24px}
 .wizard .step-ind span{flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--bg3);color:var(--text3);font-size:12px}
 .wizard .step-ind span.on{background:var(--accent);color:#fff}
-/* 浏览页 */
+/* ===== 检索 + 目录（统一入口） ===== */
+.search-row{flex-wrap:nowrap;align-items:center}
+.search-row input{flex:1;min-width:0}
+.search-row button{flex:0 0 auto}
+.search-opts{margin-top:10px;justify-content:space-between}
+.chk{display:flex;align-items:center;gap:6px;color:var(--text2);font-size:12px;cursor:pointer;user-select:none}
+.chk input{width:auto;margin:0}
+/* 面包屑：单行横向滚动，深路径不换行挤压 */
+.dirbar{padding:10px 14px}
+.navrow{display:flex;align-items:center;gap:10px}
+.crumbs{flex:1;min-width:0;display:flex;align-items:center;gap:2px;overflow-x:auto;white-space:nowrap;
+  padding:2px 0;scrollbar-width:thin}
+.crumbs::-webkit-scrollbar{height:4px}
+.crumbs::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.crumb{color:var(--accent);cursor:pointer;padding:3px 7px;border-radius:5px;font-size:13px;flex:0 0 auto;
+  max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb:hover{background:var(--bg3)}
+.crumb.cur{color:var(--text);font-weight:600;cursor:default}
+.crumb.cur:hover{background:none}
+.crumb-sep{color:var(--text3);flex:0 0 auto;font-size:12px}
+.crumb-more{color:var(--text2);cursor:pointer;padding:3px 7px;border-radius:5px;flex:0 0 auto;font-size:12px}
+.crumb-more:hover{background:var(--bg3);color:var(--text)}
+button.mini{padding:4px 10px;font-size:12px}
+/* 目录浏览 */
 .browse-wrap{display:flex;gap:16px;align-items:flex-start}
-.tree{min-width:260px;max-width:340px;flex:1}
-.tree .dir{color:var(--text);cursor:pointer;padding:5px 8px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree{min-width:230px;max-width:320px;flex:1;padding:10px}
+.tree-h{color:var(--text3);font-size:11px;letter-spacing:.04em;padding:2px 8px 6px}
+.tree .dir{color:var(--text);cursor:pointer;padding:6px 8px;border-radius:5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
 .tree .dir:hover{background:var(--bg3)}
 .tree .dir.back{color:var(--accent)}
-.filelist{flex:2;min-width:0}
-.frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:5px}
+.filelist{flex:2;min-width:0;padding:0;overflow:hidden}
+.fl-head{display:flex;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border)}
+.fl-head input{flex:1;min-width:0;font-size:13px;padding:6px 10px}
+.fl-head .hint{margin:0;white-space:nowrap}
+.frow{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);
+  cursor:pointer;border-radius:0}
+.frow:last-child{border-bottom:none}
 .frow:hover{background:var(--bg3)}
-.frow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.frow .sz{color:var(--text3);font-size:12px}
+.frow.hl{background:rgba(79,140,255,.16);box-shadow:inset 3px 0 0 var(--accent)}
+.frow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .sz{color:var(--text3);font-size:12px;flex:0 0 auto}
+/* 检索结果 */
+.res-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between}
+.folder-chips{gap:8px}
+.folder-chips .chip{max-width:320px}
+.folder-chips .chip .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .cnt{background:var(--bg);color:var(--text2);border-radius:8px;padding:0 6px;font-size:11px;margin-left:6px}
+.chip .cnt.hit{background:rgba(79,140,255,.18);color:var(--accent)}
+.hitpath{display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin:0 0 8px;font-size:12px;line-height:1.9}
+.hitpath .p{color:var(--text2);cursor:pointer;padding:1px 5px;border-radius:4px;word-break:break-all}
+.hitpath .p:hover{background:var(--bg3);color:var(--accent)}
+.hitpath .p.leaf{color:var(--accent);font-weight:600}
+.hitpath .sep{color:var(--text3)}
+.hitpath .locate{margin-left:auto;padding:2px 9px;font-size:11px}
+.empty{text-align:center;padding:26px 16px}
+.otherhits{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
+.otherhits .hint{margin:0}
+.empty .big{font-size:15px;color:var(--text);margin-bottom:6px;font-weight:600}
+.empty .row{justify-content:center;margin-top:14px}
 /* 表格 */
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
@@ -131,6 +181,31 @@ td.err{color:var(--red);font-size:12px}
 .backtop.show:active{transform:translateY(0) scale(.95)}
 .backtop svg{width:20px;height:20px;display:block}
 mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;padding:0 1px}
+/* ===== 移动端（≤760px）：目录改为横向滚动条，检索栏不换行挤压 ===== */
+@media (max-width:760px){
+  .page{padding:12px}
+  .tabs{padding:6px 12px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs .tab{padding:8px 16px;flex:0 0 auto}
+  .topbar{padding:8px 12px;gap:8px;flex-wrap:wrap}
+  .topbar .kb{flex:1 1 100%;order:3}
+  .browse-wrap{flex-direction:column;gap:10px}
+  .tree{min-width:0;max-width:100%;width:100%;display:flex;gap:8px;overflow-x:auto;
+    padding:10px;flex-wrap:nowrap;scrollbar-width:thin}
+  .tree-h{display:none}
+  .tree .dir{flex:0 0 auto;max-width:62vw;background:var(--bg3);border:1px solid var(--border)}
+  .filelist{width:100%}
+  .fl-head{flex-wrap:wrap}
+  .fl-head input{flex:1 1 100%}
+  .res-head{flex-direction:column;align-items:flex-start;gap:8px}
+  .folder-chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+  .folder-chips .chip{flex:0 0 auto;max-width:76vw}
+  .hitpath .locate{margin-left:0}
+  .hit{padding:12px}
+  .hit .fpath{font-size:11px}
+  .backtop{right:16px;bottom:16px;width:44px;height:44px}
+  .modal{max-height:86vh}
+}
 </style>
 </head>
 <body>
@@ -197,20 +272,47 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
   <div class="tabs">
     <button class="tab active" data-p="p-search" onclick="switchTab('p-search',this)">检索</button>
     <button class="tab" data-p="p-analyze" onclick="switchTab('p-analyze',this)">分析</button>
-    <button class="tab" data-p="p-browse" onclick="switchTab('p-browse',this);loadBrowse(CUR_BROWSE||'')">浏览</button>
     <button class="tab" data-p="p-settings" onclick="switchTab('p-settings',this);loadSettings()">设置</button>
   </div>
 
-  <!-- 检索 -->
+  <!-- 检索 + 目录（统一入口：关键词结果与目录位置同屏可见） -->
   <div class="page active" id="p-search">
     <div class="card">
-      <div class="row">
-        <input id="s-q" placeholder="输入关键词，如：无线充电 线圈 定位（检索零成本）" style="flex:1" onkeydown="if(event.key==='Enter')doSearch()">
+      <div class="row search-row">
+        <input id="s-q" placeholder="输入关键词查文件；清空则浏览目录（检索零成本）"
+               onkeydown="if(event.key==='Enter')doSearch()" oninput="onQueryInput()">
         <button onclick="doSearch()">检索</button>
+        <button class="ghost" id="s-clear" onclick="clearSearch()" style="display:none">清空</button>
       </div>
-      <div class="hint">多词按 AND 匹配，无结果自动降级 OR。中文按 jieba 分词。</div>
+      <div class="row search-opts">
+        <label class="chk"><input type="checkbox" id="s-scope" onchange="onScopeChange()"> 仅当前目录内检索（含子目录）</label>
+        <span class="hint" id="s-scope-hint"></span>
+      </div>
+      <div class="hint" style="margin-top:6px">多词按 AND 匹配，无结果自动降级 OR；中文按 jieba 分词。</div>
     </div>
-    <div id="s-results"></div>
+
+    <!-- 目录浏览（原「浏览」页能力，现为检索页的目录视图） -->
+    <div id="s-browse">
+      <div class="card dirbar">
+        <div class="navrow">
+          <div class="crumbs" id="b-crumbs"></div>
+          <button class="ghost mini" id="b-up" onclick="gotoParent()">↑ 上级</button>
+        </div>
+      </div>
+      <div class="browse-wrap">
+        <div class="tree card" id="b-tree"><div class="hint" style="padding:6px">加载中…</div></div>
+        <div class="filelist card" id="b-files">
+          <div class="fl-head">
+            <input id="b-filter" placeholder="在当前目录筛选文件名…" oninput="paintFiles()">
+            <span class="hint" id="b-count"></span>
+          </div>
+          <div id="b-filelist"><div class="hint" style="padding:14px">加载中…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 检索结果 -->
+    <div id="s-results" style="display:none"></div>
   </div>
 
   <!-- 分析 -->
@@ -244,14 +346,6 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
         </div>
         <div class="hint" style="margin-top:6px">每轮追问都是一次 LLM 调用（计费）；会话仅存于当前页面内存，刷新即清空。</div>
       </div>
-    </div>
-  </div>
-
-  <!-- 浏览 -->
-  <div class="page" id="p-browse">
-    <div class="browse-wrap">
-      <div class="tree card" id="b-tree"></div>
-      <div class="filelist card" id="b-files"></div>
     </div>
   </div>
 
@@ -294,7 +388,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
           <input type="checkbox" id="c-ocr" style="width:auto"> 启用 OCR
         </label>
         <button class="ghost" onclick="saveOcrCfg()">保存</button>
-        <span class="hint">默认关闭。开启后，在浏览页对"无文字层"文件点「OCR」按钮，仅识别该文件，不批跑全库。</span>
+        <span class="hint">默认关闭。开启后，在「检索」页的目录视图中对"无文字层"文件点「OCR」按钮，仅识别该文件，不批跑全库。</span>
       </div>
     </div>
     <div class="card">
@@ -373,13 +467,14 @@ let CURRENT_FILE_ID = null;
 
 // ---------- init ----------
 async function boot(){
+  let st = null;
   try{
-    const st = await api('/wizard/status');
+    st = await api('/wizard/status');
     if (!st.initialized){ $('wizard').style.display='block'; $('main').style.display='none'; return; }
   }catch(e){ $('wizard').style.display='block'; return; }
   $('wizard').style.display='none'; $('main').style.display='block';
-  $('t-kbpath').textContent = '知识库: ' + st.kb_path;
-  refreshTop(); loadBrowse('');
+  $('t-kbpath').textContent = '知识库: ' + (st.kb_path || '');
+  refreshTop(); loadBrowse('');   // 目录视图即默认首页
 }
 boot();
 function refreshTop(){
@@ -475,14 +570,22 @@ async function wizFinish(){
 
 // ---------- tabs ----------
 function switchTab(id, btn){
+  // 「浏览」已并入「检索」：旧入口（旧书签、旧 onclick、外部链接）统一重定向
+  if (id === 'p-browse'){
+    id = 'p-search';
+    btn = document.querySelector('.tab[data-p="p-search"]');
+    showBrowseMode();
+  }
+  const page = $(id); if(!page) return;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  $(id).classList.add('active'); btn.classList.add('active');
+  page.classList.add('active');
+  if (btn) btn.classList.add('active');
   updateBackTop();   // 切换页面后立即校正「回到顶部」显隐
 }
 
-// ---------- 回到顶部（检索 / 分析 / 浏览 / 设置 四页均生效） ----------
-const BACKTOP_PAGES = ['p-search','p-analyze','p-browse','p-settings'];
+// ---------- 回到顶部（检索 / 分析 / 设置 三页均生效） ----------
+const BACKTOP_PAGES = ['p-search','p-analyze','p-settings'];
 let _btAnimId = 0, _btTick = false;
 function updateBackTop(){
   const bt = $('backtop'); if(!bt) return;
@@ -516,7 +619,123 @@ window.addEventListener('resize', () => updateBackTop(), {passive:true});
 ['wheel','touchstart'].forEach(ev =>
   window.addEventListener(ev, () => { _btAnimId++; }, {passive:true}));
 
-// ---------- search ----------
+// ---------- 检索 / 目录（统一入口） ----------
+let CUR_DIR = '';          // 当前目录（相对知识库根）
+let VIEW = 'browse';       // 'browse' | 'results'
+let LAST_Q = '', LAST_HITS = [];
+let SCOPE_ON = false;      // 是否「仅当前目录内检索」
+let BROWSE_DATA = null;    // 当前目录接口返回，供筛选与定位复用
+let BROWSE_SEQ = 0;        // 快速连点目录时丢弃过期响应
+
+// 用于把字符串安全塞进内联 onclick 的单引号字面量
+const jsq = s => esc(String(s??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"));
+const dirOf = rel => { const i = (rel||'').lastIndexOf('/'); return i < 0 ? '' : rel.slice(0, i); };
+const baseName = p => (p||'').split('/').filter(Boolean).pop() || '知识库根目录';
+
+// 深路径折叠：段数超过 max 时保留首段 + 末段，中间收成「…」
+function crumbItems(segs, max){
+  if (segs.length <= max) return segs.map((s,i)=>({s, i}));
+  const tail = max - 2;
+  const out = [{s:segs[0], i:0}];
+  out.push({more:true, from:1, to:segs.length - tail});
+  for (let i = segs.length - tail; i < segs.length; i++) out.push({s:segs[i], i});
+  return out;
+}
+
+// 目录层级链：cls='crumb' 用于导航条，cls='p' 用于结果卡片（带「定位」按钮）
+function crumbChain(dirRel, opt){
+  opt = opt || {};
+  const cls = opt.cls || 'crumb';
+  const segs = (dirRel||'').split('/').filter(Boolean);
+  const max = cls === 'p' ? 4 : 5;
+  let h = `<span class="${cls}" onclick="gotoDir('')" title="知识库根目录">📁 知识库</span>`;
+  crumbItems(segs, max).forEach(it=>{
+    h += `<span class="crumb-sep">/</span>`;
+    if (it.more){
+      const hidden = segs.slice(it.from, it.to);
+      h += `<span class="crumb-more" title="省略 ${hidden.length} 级：${esc(hidden.join(' / '))}（点击进入 ${esc(hidden[0])}）"
+             onclick="gotoDir('${jsq(segs.slice(0, it.from+1).join('/'))}')">…</span>`;
+    } else {
+      const p = segs.slice(0, it.i+1).join('/');
+      const last = it.i === segs.length - 1;
+      h += `<span class="${cls}${last ? (cls==='p' ? ' leaf' : ' cur') : ''}"
+             onclick="gotoDir('${jsq(p)}')" title="${esc(p)}">${esc(it.s)}</span>`;
+    }
+  });
+  if (opt.locate) h += `<button class="ghost locate" onclick="locateFile('${jsq(opt.locate)}')">定位到此目录</button>`;
+  return h;
+}
+
+function showBrowseMode(){
+  VIEW = 'browse';
+  $('s-browse').style.display = '';
+  $('s-results').style.display = 'none';
+  if (!BROWSE_DATA) loadBrowse(CUR_DIR);
+  updateScopeHint();
+}
+function showResultsMode(){
+  VIEW = 'results';
+  $('s-browse').style.display = 'none';
+  $('s-results').style.display = '';
+}
+function backToBrowse(){
+  showBrowseMode();
+  if ((window.scrollY||0) > 200) window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function gotoDir(rel){
+  rel = rel || '';
+  // 目录切换时清掉结果视图，回到目录视图（结果仍在内存里，可用「返回」找回不必要，重新搜即可）
+  showBrowseMode();
+  const same = rel === CUR_DIR && BROWSE_DATA;
+  loadBrowse(rel).then(()=>{
+    if (!same && (window.scrollY||0) > 200) window.scrollTo({top:0, behavior:'smooth'});
+  });
+}
+function gotoParent(){
+  const p = BROWSE_DATA ? BROWSE_DATA.parent : null;
+  gotoDir(p === null || p === undefined ? '' : p);
+}
+
+// 从检索结果定位文件：进入所在目录 → 高亮该行并滚动到可见
+async function locateFile(rel){
+  const dir = dirOf(rel);
+  showBrowseMode();
+  await loadBrowse(dir);
+  if ($('b-filter').value){ $('b-filter').value = ''; paintFiles(); }   // 筛掉的先还原
+  const box = $('b-filelist');
+  const row = box && [...box.querySelectorAll('.frow')].find(r=>r.getAttribute('data-rel') === rel);
+  if (!row){
+    if (box) box.insertAdjacentHTML('afterbegin',
+      `<div class="hint" style="padding:10px 14px;color:var(--yellow)">该文件已不在磁盘上（或不在索引中），已定位到所在目录：${esc(dir||'知识库根目录')}</div>`);
+    return;
+  }
+  row.classList.add('hl');
+  row.scrollIntoView({block:'center', behavior:'smooth'});
+  setTimeout(()=>row.classList.remove('hl'), 2600);
+}
+
+function onQueryInput(){
+  const has = !!$('s-q').value.trim();
+  $('s-clear').style.display = has ? '' : 'none';
+}
+function clearSearch(){
+  $('s-q').value = ''; LAST_Q = ''; LAST_HITS = [];
+  $('s-results').innerHTML = ''; $('s-clear').style.display = 'none';
+  showBrowseMode();
+}
+function onScopeChange(){
+  SCOPE_ON = $('s-scope').checked;
+  updateScopeHint();
+  if (LAST_Q && VIEW === 'results') doSearch();   // 改范围立即按同一关键词重查
+}
+function updateScopeHint(){
+  const h = $('s-scope-hint'); if(!h) return;
+  h.textContent = SCOPE_ON
+    ? '范围：' + (CUR_DIR ? baseName(CUR_DIR) + ' 及子目录' : '知识库根目录 及子目录')
+    : '范围：全部目录';
+}
+
 function hlSnippet(s){
   return esc(s).replace(/»/g,'<mark>').replace(/«/g,'</mark>');
 }
@@ -530,29 +749,123 @@ function anchorText(a){
   if(a.type==='image'||a.filename_only) return '文件名索引';
   return '';
 }
+
+// 同一文件的多个片段合并为一个结果分组（hits 已按相关度降序，首条即最佳片段）
+function groupByFile(hits){
+  const m = new Map();
+  hits.forEach(h=>{
+    let g = m.get(h.file_id);
+    if(!g){ g = {best:h, chunks:[]}; m.set(h.file_id, g); }
+    g.chunks.push(h);
+  });
+  return [...m.values()];
+}
+
+// 相关文件夹：按命中文件的所在目录聚合，命中多的排前面
+function groupFolders(hits){
+  const m = new Map();
+  hits.forEach(h=>{
+    const d = dirOf(h.rel_path);
+    m.set(d, (m.get(d)||0) + 1);
+  });
+  return [...m.entries()]
+    .sort((a,b)=> b[1]-a[1] || a[0].split('/').length - b[0].split('/').length)
+    .slice(0, 8);
+}
+
 async function doSearch(){
-  const q = $('s-q').value.trim(); if(!q) return;
-  $('s-results').innerHTML = '<div class="card"><span class="spin"></span>检索中...</div>';
+  const q = $('s-q').value.trim();
+  if(!q){ clearSearch(); return; }
+  LAST_Q = q;
+  $('s-clear').style.display = '';
+  showResultsMode();
+  $('s-results').innerHTML = '<div class="card"><span class="spin"></span>检索中…</div>';
+  const scope = SCOPE_ON ? CUR_DIR : '';
   try{
-    const d = await api(`/search?q=${encodeURIComponent(q)}&limit=20`);
-    if(!d.hits.length){ $('s-results').innerHTML = '<div class="card">无结果。试试减少关键词或换同义词。</div>'; return; }
-    $('s-results').innerHTML = d.hits.map(h=>`
+    const d = await api(`/search?q=${encodeURIComponent(q)}&limit=20&path=${encodeURIComponent(scope)}`);
+    LAST_HITS = d.hits || [];
+    renderResults(q, d.scope || '');
+  }catch(e){
+    $('s-results').innerHTML = `<div class="card" style="color:var(--red)">${esc(e.message)}</div>`;
+  }
+}
+
+function renderResults(q, scope){
+  if(!LAST_HITS.length){
+    const btns = [];
+    if (scope) btns.push(`<button onclick="searchAllDirs()">在全部目录中检索</button>`);
+    if (CUR_DIR) btns.push(`<button class="ghost" onclick="searchParentDir()">在上一级目录检索</button>`);
+    btns.push(`<button class="ghost" onclick="backToBrowse()">浏览目录找找看</button>`);
+    $('s-results').innerHTML = `
+      <div class="card empty">
+        <div class="big">没有找到「${esc(q)}」</div>
+        <div class="hint">${scope
+          ? `已限定在「${esc(baseName(scope))}」及其子目录内。`
+          : '已在全部目录内检索。'}多词按 AND 匹配（无结果会自动降级 OR），可减少关键词或换同义词。</div>
+        <div class="row">${btns.join('')}</div>
+      </div>`;
+    return;
+  }
+
+  // 按文件聚合：同一文件多个片段不重复占卡片，卡片主片段之外的小按钮可跳其它命中
+  const groups = groupByFile(LAST_HITS);
+  const folders = groupFolders(groups.map(g=>g.best));
+  const more = new Set(groups.map(g=>dirOf(g.best.rel_path))).size - folders.length;
+  // AND 无命中时后端会降级 OR，此时结果相关性明显更松，必须告诉用户
+  const loose = LAST_HITS[0] && LAST_HITS[0].match_op === 'OR';
+  $('s-results').innerHTML = `
+    <div class="card res-head">
+      <div>找到 <b>${groups.length}</b> 个文件 · ${LAST_HITS.length} 处命中 · 关键词「${esc(q)}」
+        <span class="badge ext" style="margin-left:8px">${scope ? '范围：' + esc(scope) : '范围：全部目录'}</span>
+      </div>
+      <button class="ghost mini" onclick="backToBrowse()">← 返回目录浏览</button>
+    </div>
+    ${loose ? `<div class="card" style="border-color:rgba(230,180,80,.55);margin-bottom:12px">
+        <span class="badge inf">OR 宽松匹配</span>
+        <span style="color:var(--text2);font-size:13px">没有文件同时包含全部关键词，已按「命中任一关键词」召回，相关性会明显偏低。建议减少关键词或换更准确的词。</span>
+      </div>` : ''}
+    <div class="card folders">
+      <h3>相关文件夹（${folders.length}${more>0?` / 共 ${folders.length+more}`:''}）</h3>
+      <div class="chips folder-chips">
+        ${folders.map(([d,n])=>`<span class="chip" title="${esc(d||'知识库根目录')}"
+            onclick="gotoDir('${jsq(d)}')"><span class="nm">📁 ${esc(baseName(d))}</span><span class="cnt hit">${n}</span></span>`).join('')}
+      </div>
+      <div class="hint">点击文件夹直接跳到该目录继续浏览；每个结果下方的路径也可逐级点击。</div>
+    </div>
+    ${groups.map(g=>{
+      const h = g.best, others = g.chunks.slice(1);
+      return `
       <div class="hit">
         <div class="head">
           <span class="badge ext">${esc(h.ext||'')}</span>
-          <span class="badge inf">项目: ${esc(h.project||'—')}</span>
           <span class="fname" onclick="showChunk(${h.chunk_id})">${esc(h.filename)}</span>
           <span class="anchor">${esc(anchorText(h.anchor))}</span>
+          ${g.chunks.length>1?`<span class="badge inf">同文件 ${g.chunks.length} 处</span>`:''}
         </div>
-        <div class="fpath" title="${esc(h.abs_path||h.rel_path)}">完整路径: ${esc(h.abs_path||h.rel_path)}</div>
+        <div class="hitpath">${crumbChain(dirOf(h.rel_path), {cls:'p', locate:h.rel_path})}</div>
         <div class="snippet">${hlSnippet(h.snippet)}</div>
         <div class="actions">
           <button class="ghost" onclick="showChunk(${h.chunk_id})">查看原文</button>
           <button class="ghost" onclick="downloadFile(${h.file_id})">下载</button>
           <button class="ghost" onclick="revealFile(${h.file_id})">打开所在文件夹</button>
         </div>
-      </div>`).join('');
-  }catch(e){ $('s-results').innerHTML = `<div class="card" style="color:var(--red)">${esc(e.message)}</div>`; }
+        ${others.length?`<div class="otherhits">
+          <span class="hint">其他命中：</span>
+          ${others.slice(0,4).map(o=>`<button class="ghost mini" onclick="showChunk(${o.chunk_id})">${esc(anchorText(o.anchor))||'片段 '+(o.chunk_id)}</button>`).join('')}
+          ${others.length>4?`<span class="hint">另有 ${others.length-4} 处</span>`:''}
+        </div>`:''}
+      </div>`;}).join('')}`;
+}
+
+function searchAllDirs(){
+  $('s-scope').checked = false;
+  SCOPE_ON = false; updateScopeHint(); doSearch();
+}
+function searchParentDir(){
+  const p = BROWSE_DATA ? BROWSE_DATA.parent : null;
+  loadBrowse(p === null || p === undefined ? '' : p).then(()=>{
+    $('s-scope').checked = true; SCOPE_ON = true; updateScopeHint(); doSearch();
+  });
 }
 function downloadFile(id){ window.open(`/api/file/download?file_id=${id}`,'_blank'); }
 async function revealFile(id){
@@ -664,32 +977,76 @@ function showSources(sources){
   showChunk(sources[0].chunk_id);
 }
 
-// ---------- browse ----------
-let CUR_BROWSE = '';
+// ---------- 目录浏览（原「浏览」页，现为检索页的目录视图） ----------
+function statusBadge(s){
+  return s==='ok'||s==='truncated' ? '<span class="badge ok">已索引</span>'
+    : s==='failed' ? '<span class="badge err">失败</span>'
+    : s==='skipped_no_text' ? '<span class="badge inf">无文字层</span>'
+    : s==='unsupported' ? '<span class="badge inf">不支持</span>'
+    : '<span class="badge ext">未索引</span>';
+}
+
+function renderCrumbs(d){
+  $('b-crumbs').innerHTML = crumbChain(d.current || '', {cls:'crumb'});
+  const up = $('b-up');
+  const atRoot = d.parent === null || d.parent === undefined;
+  up.disabled = atRoot;
+  up.style.opacity = atRoot ? .45 : 1;
+}
+
+function renderTree(d){
+  let h = '';
+  if (d.parent !== null && d.parent !== undefined && d.current){
+    h += `<div class="dir back" onclick="gotoDir('${jsq(d.parent)}')">📁 ..（上级目录）</div>`;
+  }
+  h += `<div class="tree-h">子目录${d.dirs.length ? '（'+d.dirs.length+'）' : ''}</div>`;
+  h += d.dirs.length
+    ? d.dirs.map(x=>`<div class="dir" title="${esc(x.rel_path)}"
+        onclick="gotoDir('${jsq(x.rel_path)}')">📁 ${esc(x.name)}</div>`).join('')
+    : '<div class="hint" style="padding:4px 8px">无子目录</div>';
+  $('b-tree').innerHTML = h;
+}
+
+// 文件列表按当前目录内的筛选词渲染（纯前端过滤，不发请求）
+function paintFiles(){
+  const d = BROWSE_DATA; if(!d) return;
+  const kw = ($('b-filter').value || '').trim().toLowerCase();
+  const all = d.files || [];
+  const rows = kw ? all.filter(f=>f.name.toLowerCase().includes(kw)) : all;
+  $('b-count').textContent = kw ? `${rows.length} / ${all.length} 个文件` : `${all.length} 个文件`;
+  $('b-filelist').innerHTML = rows.length ? rows.map(f=>`
+    <div class="frow" data-rel="${esc(f.rel_path)}"
+         onclick="previewFile(${f.file_id??0},'${jsq(f.rel_path)}',${f.file_id??'null'})">
+      <span class="nm">📄 ${esc(f.name)}</span>${statusBadge(f.status)}
+      ${f.status==='skipped_no_text'&&f.file_id?`<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();doOcr(${f.file_id})">OCR</button>`:''}
+      <span class="sz">${fmtSize(f.size)}</span>
+    </div>`).join('')
+    : `<div class="hint" style="padding:14px">${all.length
+        ? '没有匹配「' + esc(kw) + '」的文件'
+        : (d.dirs.length ? '此目录无文件，可点击左侧子目录继续浏览' : '此目录为空')}</div>`;
+}
+
 async function loadBrowse(path){
-  CUR_BROWSE = path || '';
-  $('b-tree').innerHTML = '<div class="hint">加载中…</div>';
-  $('b-files').innerHTML = '<div class="hint">加载中…</div>';
+  CUR_DIR = path || '';
+  const seq = ++BROWSE_SEQ;
+  $('b-tree').innerHTML = '<div class="hint" style="padding:6px">加载中…</div>';
+  $('b-filelist').innerHTML = '<div class="hint" style="padding:14px">加载中…</div>';
+  $('b-count').textContent = '';
   try{
-    const d = await api(`/browse?path=${encodeURIComponent(path)}`);
-    let tree = path ? `<div class="dir back" onclick="loadBrowse('${esc(path.split('/').slice(0,-1).join('/'))}')">📁 ..（返回上级）</div>` :
-                      '<div class="dir" style="color:var(--accent)">📁 知识库根目录</div>';
-    tree += d.dirs.map(x=>`<div class="dir" onclick="loadBrowse('${esc(x.rel_path)}')">📁 ${esc(x.name)}</div>`).join('');
-    $('b-tree').innerHTML = tree;
-    const statusBadge = s => s==='ok'||s==='truncated' ? '<span class="badge ok">已索引</span>'
-      : s==='failed' ? '<span class="badge err">失败</span>'
-      : s==='skipped_no_text' ? '<span class="badge inf">无文字层</span>'
-      : s==='unsupported' ? '<span class="badge inf">不支持</span>'
-      : '<span class="badge ext">未索引</span>';
-    $('b-files').innerHTML = d.files.length ? d.files.map(f=>
-      `<div class="frow" onclick="previewFile(${f.file_id??0},'${esc(f.rel_path)}',${f.file_id??'null'})">
-        <span class="nm">📄 ${esc(f.name)}</span>${statusBadge(f.status)}
-        ${f.status==='skipped_no_text'&&f.file_id?`<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();doOcr(${f.file_id})">OCR</button>`:''}
-        <span class="sz">${fmtSize(f.size)}</span>
-      </div>`).join('') : '<div class="hint">空目录（或无文件）</div>';
+    const d = await api(`/browse?path=${encodeURIComponent(CUR_DIR)}`);
+    if (seq !== BROWSE_SEQ) return;        // 已有更新的目录请求，丢弃本次
+    BROWSE_DATA = d;
+    CUR_DIR = d.current || '';
+    $('b-filter').value = '';
+    renderCrumbs(d); renderTree(d); paintFiles();
+    updateScopeHint();
   }catch(e){
-    $('b-tree').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span><div class="hint" style="margin-top:6px">重新点击「浏览」标签即可重试</div>`;
-    $('b-files').innerHTML = '<div class="hint">目录加载失败</div>';
+    if (seq !== BROWSE_SEQ) return;
+    BROWSE_DATA = null;
+    $('b-crumbs').innerHTML = '<span class="crumb cur">📁 知识库</span>';
+    $('b-tree').innerHTML = `<span style="color:var(--red);padding:6px;display:block">${esc(e.message)}</span>`;
+    $('b-filelist').innerHTML = '<div class="hint" style="padding:14px">目录加载失败，点击「↑ 上级」或刷新重试</div>';
+    $('b-count').textContent = '';
   }
 }
 async function previewFile(fileId, relPath, hasId){
