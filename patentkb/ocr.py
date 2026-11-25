@@ -85,7 +85,9 @@ def ocr_file(file_id: int) -> dict[str, Any]:
     meta = json.loads(row["meta_json"] or "{}")
     meta["ocr"] = {"engine": "rapidocr", "chunks": len(chunks)}
     with db.transaction() as conn:
-        conn.execute("DELETE FROM fts_chunks WHERE file_id=?", (file_id,))
+        # file_id 在 fts5 表里是 UNINDEXED，按它删会全表扫（实测 102s/文件）；
+        # rowid 与 chunks.id 一一对应（已抽查 8 个点验证），改走 rowid 为索引删除。
+        conn.execute("DELETE FROM fts_chunks WHERE rowid IN (SELECT id FROM chunks WHERE file_id=?)", (file_id,))
         conn.execute("DELETE FROM chunks WHERE file_id=?", (file_id,))
         indexer._write_chunks(conn, file_id, chunks)
         conn.execute("UPDATE files SET meta_json=? WHERE id=?",

@@ -28,11 +28,18 @@ def _kb_root() -> Path:
     """
     src = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PATENTKB_KB_ROOT", "")
     if not src:
-        try:
-            with urllib.request.urlopen(BASE + "/api/wizard/status", timeout=10) as r:
-                src = json.loads(r.read().decode("utf-8")).get("kb_path") or ""
-        except Exception as e:
-            sys.exit(f"无法从服务 {BASE} 获取 kb_path（{e}）\n"
+        last = None
+        for _ in range(12):  # 服务可能刚启动，最多等约 2 分钟再放弃
+            try:
+                with urllib.request.urlopen(BASE + "/api/wizard/status", timeout=10) as r:
+                    src = json.loads(r.read().decode("utf-8")).get("kb_path") or ""
+                if src:
+                    break
+            except Exception as e:
+                last = e
+            time.sleep(10)
+        if not src:
+            sys.exit(f"无法从服务 {BASE} 获取 kb_path（{last}）\n"
                      f"请先启动服务，或显式传入知识库根目录")
     if not src:
         sys.exit("未拿到知识库根目录：请传入参数或设置 PATENTKB_KB_ROOT")
@@ -226,6 +233,8 @@ def main():
 
 
 if __name__ == "__main__":
+    pid_file = HERE / "p1_driver.pid"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
     try:
         main()
     except KeyboardInterrupt:
@@ -235,3 +244,8 @@ if __name__ == "__main__":
 
         log("FATAL " + traceback.format_exc())
         sys.exit(1)
+    finally:
+        try:
+            pid_file.unlink()
+        except OSError:
+            pass

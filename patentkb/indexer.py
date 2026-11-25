@@ -81,7 +81,9 @@ def _scan_locked(kb_path: str, full: bool) -> dict[str, Any]:
     if removed_ids:
         with db.transaction() as conn:
             for rid in removed_ids:
-                conn.execute("DELETE FROM fts_chunks WHERE file_id=?", (rid,))
+                # file_id 在 fts5 表里是 UNINDEXED，按它删会全表扫（实测单文件 102s）；
+                # rowid 与 chunks.id 一一对应，走 rowid 删除是索引操作（实测 0ms）。
+                conn.execute("DELETE FROM fts_chunks WHERE rowid IN (SELECT id FROM chunks WHERE file_id=?)", (rid,))
                 conn.execute("DELETE FROM chunks WHERE file_id=?", (rid,))
                 conn.execute("DELETE FROM files WHERE id=?", (rid,))
             report["removed"] += len(removed_ids)
@@ -123,7 +125,7 @@ def _index_one(root: Path, rel_path: str, fp: Path, ext: str,
 
     with db.transaction() as conn:
         if old:
-            conn.execute("DELETE FROM fts_chunks WHERE file_id=?", (old["id"],))
+            conn.execute("DELETE FROM fts_chunks WHERE rowid IN (SELECT id FROM chunks WHERE file_id=?)", (old["id"],))
             conn.execute("DELETE FROM chunks WHERE file_id=?", (old["id"],))
             conn.execute("DELETE FROM files WHERE id=?", (old["id"],))
             report["updated"] += 1

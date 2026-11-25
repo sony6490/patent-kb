@@ -21,6 +21,7 @@ scripts/*.mark
 scripts/*.json
 scripts/*.xlsx
 scripts/*.bak-*
+scripts/*.pid
 
 # IDE/系统
 .vscode/
