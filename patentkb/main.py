@@ -17,16 +17,19 @@ app = FastAPI(title="patent-kb")
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-# ---------- Phase 2 预留：auth_token 中间件 ----------
+# ---------- Phase 2：auth_token 中间件（支持 Header 与 URL 参数双通道） ----------
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     cfg = config.load_config()
     token = (cfg.get("server") or {}).get("auth_token", "")
-    if token:  # 非空时启用（MVP 默认空 = 不启用）
-        auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {token}" and request.url.path.startswith("/api"):
-            return JSONResponse({"detail": "未授权"}, status_code=401)
+    if token and request.url.path.startswith("/api"):
+        auth_header = request.headers.get("Authorization", "")
+        bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+        query_token = request.query_params.get("token", "")
+        # Header 认证或 Query 认证（方便手机扫码/URL 直达）
+        if bearer_token != token and query_token != token:
+            return JSONResponse({"detail": "未授权，请提供正确的访问口令"}, status_code=401)
     return await call_next(request)
 
 

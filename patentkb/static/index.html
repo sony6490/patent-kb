@@ -387,6 +387,18 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
       <div class="hint">每个目录的索引独立保存在其 .kbindex 子目录，切回即恢复，互不影响。</div>
     </div>
     <div class="card">
+      <h3>访问安全与远程连接（Phase 2）</h3>
+      <label class="fld"><span>远程访问口令 Auth Token（留空表示局域网/本机免密）</span>
+        <input id="c-token" type="password" placeholder="设置后跨设备/外网访问需校验口令">
+      </label>
+      <div class="row" style="margin-bottom:8px">
+        <button onclick="saveTokenCfg()">保存口令配置</button>
+        <button class="ghost" onclick="showShareLink()">获取本设备分享链接</button>
+        <span class="hint" id="c-tokensaved" style="margin-left:10px"></span>
+      </div>
+      <div class="hint">搭配 Tailscale 内网穿透使用：设置口令后在手机或远程电脑打开分享链接即可免密自动登录。</div>
+    </div>
+    <div class="card">
       <h3>大模型 API</h3>
       <label class="fld"><span>Base URL</span><input id="c-baseurl"></label>
       <label class="fld"><span>API Key（留空/含***表示不变）</span><input id="c-apikey" type="password" placeholder="保持不变"></label>
@@ -454,12 +466,65 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
   </div>
 </div>
 
+<!-- 访问口令浮层（跨设备首次访问且服务端配置了 auth_token 时触发） -->
+<div class="modal-mask" id="auth-modal" style="z-index:90">
+  <div class="modal" style="max-width:400px">
+    <div class="m-head">
+      <span class="t">🔐 请输入访问口令</span>
+    </div>
+    <div class="m-body" style="padding:20px 16px">
+      <div class="hint" style="margin-bottom:12px">知识库已开启访问鉴权，请输入设置的远程访问口令：</div>
+      <input id="auth-input" type="password" placeholder="请输入口令..." onkeydown="if(event.key==='Enter')submitAuthToken()">
+      <div id="auth-err" class="hint" style="color:var(--red);margin-top:8px"></div>
+    </div>
+    <div class="m-foot" style="justify-content:flex-end">
+      <button onclick="submitAuthToken()">确认进入</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
+
+// ---------- Phase 2: Token 鉴权管理 ----------
+const TOKEN_KEY = 'patentkb_auth_token';
+// 优先从 URL Query 参数提取 token（如手机扫码直达: ?token=xxx），并存入 localStorage
+const _urlParams = new URLSearchParams(window.location.search);
+if (_urlParams.has('token')) {
+  const t = _urlParams.get('token');
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+}
+const getAuthToken = () => localStorage.getItem(TOKEN_KEY) || '';
+const setAuthToken = t => {
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else localStorage.removeItem(TOKEN_KEY);
+};
+
+function showAuthModal(errMsg){
+  $('auth-err').textContent = errMsg || '';
+  $('auth-modal').classList.add('show');
+  setTimeout(()=>$('auth-input').focus(), 100);
+}
+function hideAuthModal(){
+  $('auth-modal').classList.remove('show');
+}
+function submitAuthToken(){
+  const t = $('auth-input').value.trim();
+  if(!t) { $('auth-err').textContent = '请输入口令'; return; }
+  setAuthToken(t);
+  hideAuthModal();
+  location.reload();
+}
+
 const api = (p, opt) => {
   opt = opt || {};
+  opt.headers = Object.assign({}, opt.headers);
   if (opt.body) {
-    opt.headers = Object.assign({}, opt.headers, {'Content-Type': 'application/json'});
+    opt.headers['Content-Type'] = 'application/json';
+  }
+  const token = getAuthToken();
+  if (token) {
+    opt.headers['Authorization'] = 'Bearer ' + token;
   }
   // 超时保护：默认 60s，防止接口挂起导致页面永久空白；长调用用 opt.timeout 覆盖
   const ctl = new AbortController();
@@ -471,6 +536,10 @@ const api = (p, opt) => {
     })
     .finally(() => clearTimeout(timer))
     .then(async r => {
+    if (r.status === 401) {
+      showAuthModal('访问未授权或口令错误，请重新输入');
+      throw new Error('未授权');
+    }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       let msg = d.detail || r.statusText || ('HTTP ' + r.status);
@@ -1206,6 +1275,8 @@ function loadSettings(){
     $('c-apikey').placeholder = c.llm?.api_key ? c.llm.api_key+'（保持不变）' : '未设置';
     $('c-model').value = c.llm?.model||'';
     $('c-litemodel').value = c.llm?.lite_model||'';
+    $('c-token').value = '';
+    $('c-token').placeholder = c.server?.auth_token ? c.server.auth_token+'（保持不变）' : '留空表示免密';
     $('c-limit').value = c.cost?.daily_llm_call_limit??50;
     $('c-warn').value = c.cost?.warn_tokens_per_call??8000;
     $('c-ocr').checked = !!c.features?.ocr;
@@ -1233,6 +1304,27 @@ function loadSettings(){
       rows.map(u=>`<tr><td>${u.date}</td><td>${u.calls}</td><td>${u.billed}</td><td>${u.cache_hits}</td>
         <td>${((u.prompt_tokens||0)+(u.completion_tokens||0)).toLocaleString('zh-CN')}</td><td>${money(u.cost||0)}</td></tr>`).join('') + summaryRow + '</table>'
       : '<div class="hint">暂无调用记录</div>');
+  });
+}
+async function saveTokenCfg(){
+  const val = $('c-token').value.trim();
+  const patch = {server:{auth_token:val}};
+  await api('/config',{method:'PUT', body:JSON.stringify(patch)});
+  if (val) setAuthToken(val);
+  $('c-tokensaved').innerHTML = '<span style="color:var(--green)">✓ 口令已更新</span>';
+  setTimeout(()=>$('c-tokensaved').textContent='', 2000);
+}
+function showShareLink(){
+  const token = getAuthToken();
+  const url = new URL(window.location.href);
+  url.hash = '';
+  if (token) url.searchParams.set('token', token);
+  else url.searchParams.delete('token');
+  const shareText = url.toString();
+  navigator.clipboard.writeText(shareText).then(()=>{
+    alert('已复制带口令的分享链接到剪贴板！\n\n' + shareText + '\n\n发送至手机或远程电脑打开即可自动登入。');
+  }).catch(()=>{
+    prompt('请复制以下直达链接并在手机或远程电脑打开：', shareText);
   });
 }
 async function saveLlmCfg(){

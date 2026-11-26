@@ -9,7 +9,7 @@ CONFIG_ENV = "PATENTKB_CONFIG"
 DEFAULTS: dict[str, Any] = {
     "kb_path": "",
     "recent_kb_paths": [],
-    "server": {"host": "127.0.0.1", "port": 8322, "auth_token": ""},
+    "server": {"host": "0.0.0.0", "port": 8322, "auth_token": ""},
     "llm": {
         "base_url": "",
         "api_key": "",
