@@ -21,6 +21,21 @@ from pathlib import Path
 BASE = os.environ.get("PATENTKB_BASE", "http://127.0.0.1:8322")
 
 
+def auth_headers() -> dict:
+    """服务端可能开启 auth_token，本地脚本需带口令访问 /api/*。
+    优先级：命令行第 2 参数 > 环境变量 PATENTKB_TOKEN > 配置文件（不硬编码口令）。"""
+    token = (sys.argv[2] if len(sys.argv) > 2 else "") or os.environ.get("PATENTKB_TOKEN", "")
+    if not token:
+        try:
+            cfg_path = Path(os.environ.get("PATENTKB_CONFIG",
+                                           Path.home() / ".patentkb" / "config.json"))
+            token = (json.loads(cfg_path.read_text(encoding="utf-8"))
+                     .get("server", {}).get("auth_token", ""))
+        except (OSError, ValueError):
+            token = ""
+    return {"Authorization": "Bearer " + token} if token else {}
+
+
 def _kb_root() -> Path:
     """知识库根目录：命令行参数 > 环境变量 PATENTKB_KB_ROOT > 运行中服务上报的 kb_path。
 
@@ -31,7 +46,8 @@ def _kb_root() -> Path:
         last = None
         for _ in range(12):  # 服务可能刚启动，最多等约 2 分钟再放弃
             try:
-                with urllib.request.urlopen(BASE + "/api/wizard/status", timeout=10) as r:
+                req = urllib.request.Request(BASE + "/api/wizard/status", headers=auth_headers())
+                with urllib.request.urlopen(req, timeout=10) as r:
                     src = json.loads(r.read().decode("utf-8")).get("kb_path") or ""
                 if src:
                     break
@@ -71,15 +87,18 @@ def log(msg: str) -> None:
 
 
 def api_get(path: str, timeout: int = 15):
-    with urllib.request.urlopen(BASE + path, timeout=timeout) as r:
+    req = urllib.request.Request(BASE + path, headers=auth_headers())
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
 def api_post(path: str, body: dict, timeout: int = 3600):
+    headers = {"Content-Type": "application/json"}
+    headers.update(auth_headers())
     req = urllib.request.Request(
         BASE + path,
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:

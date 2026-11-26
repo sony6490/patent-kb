@@ -10,6 +10,7 @@
 无法把进程托管给系统服务，因此用"看门狗 + 后台任务"实现自愈。
 """
 import ctypes
+import json
 import os
 import subprocess
 import sys
@@ -52,9 +53,25 @@ def alive(pid: int) -> bool:
     return bool(ok) and code.value == STILL_ACTIVE
 
 
+def auth_headers() -> dict:
+    """服务端开启 auth_token 时探活需带口令，否则 401 会被误判为服务掉线。
+    从环境变量或配置文件读取，不硬编码。"""
+    token = os.environ.get("PATENTKB_TOKEN", "")
+    if not token:
+        try:
+            cfg_path = Path(os.environ.get("PATENTKB_CONFIG",
+                                           Path.home() / ".patentkb" / "config.json"))
+            token = (json.loads(cfg_path.read_text(encoding="utf-8"))
+                     .get("server", {}).get("auth_token", ""))
+        except (OSError, ValueError):
+            token = ""
+    return {"Authorization": "Bearer " + token} if token else {}
+
+
 def service_ok() -> bool:
     try:
-        with urllib.request.urlopen(BASE + "/api/admin/index/status", timeout=8) as r:
+        req = urllib.request.Request(BASE + "/api/admin/index/status", headers=auth_headers())
+        with urllib.request.urlopen(req, timeout=8) as r:
             return r.status == 200
     except Exception:
         return False
