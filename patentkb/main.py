@@ -17,17 +17,22 @@ app = FastAPI(title="patent-kb")
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-# ---------- Phase 2：auth_token 中间件（支持 Header 与 URL 参数双通道） ----------
+# ---------- Phase 2：auth_token 中间件（本地免密白名单 + 远程双通道鉴权） ----------
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
+    # 本地回环访问（127.0.0.1 / localhost / ::1）拥有最高优先级，永久免密白名单放行
+    client_host = request.client.host if request.client else ""
+    if client_host in ("127.0.0.1", "localhost", "::1", "testclient"):
+        return await call_next(request)
+
     cfg = config.load_config()
     token = (cfg.get("server") or {}).get("auth_token", "")
     if token and request.url.path.startswith("/api"):
         auth_header = request.headers.get("Authorization", "")
         bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
         query_token = request.query_params.get("token", "")
-        # Header 认证或 Query 认证（方便手机扫码/URL 直达）
+        # 远程访问：Header 认证或 Query 认证（方便手机扫码/URL 直达）
         if bearer_token != token and query_token != token:
             return JSONResponse({"detail": "未授权，请提供正确的访问口令"}, status_code=401)
     return await call_next(request)

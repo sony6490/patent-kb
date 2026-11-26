@@ -500,7 +500,14 @@ const setAuthToken = t => {
   else localStorage.removeItem(TOKEN_KEY);
 };
 
+const isLocalHost = () => {
+  const h = window.location.hostname;
+  return h === '127.0.0.1' || h === 'localhost' || h === '::1';
+};
+
 function showAuthModal(errMsg){
+  // 如果是本机访问，永不弹出鉴权弹窗，避免打扰本地用户
+  if (isLocalHost()) return;
   $('auth-err').textContent = errMsg || '';
   $('auth-modal').classList.add('show');
   setTimeout(()=>$('auth-input').focus(), 100);

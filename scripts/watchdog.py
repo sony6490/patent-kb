@@ -127,7 +127,7 @@ def main() -> int:
             if fails >= SERVICE_FAIL_LIMIT:
                 pid = spawn(
                     [str(PY), "-m", "uvicorn", "patentkb.main:app",
-                     "--host", "127.0.0.1", "--port", "8322", "--log-level", "warning"],
+                     "--host", "0.0.0.0", "--port", "8322", "--log-level", "warning"],
                     logfile=HERE / "service.log",
                 )
                 log(f"已重启服务 pid={pid}")
