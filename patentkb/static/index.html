@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" href="data:,"><!-- 避免浏览器请求不存在的 favicon 产生 404 -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2314161a'/><text y='24' x='4' font-size='22'>🔍</text></svg>"><!-- 自定义 favicon：搜索图标 -->
 <title>专利项目经验知识库-by WB</title>
 <style>
 :root{
@@ -12,15 +12,30 @@
   --accent:#4f8cff;--accent2:#3a6fd8;--green:#34c77b;--yellow:#e6b450;--red:#e05c5c;
   --radius:10px;--mono:Consolas,'Courier New',monospace;
 }
+/* 深色模式：让浏览器原生控件（滚动条、输入框等）跟随深色主题 */
+:root{ color-scheme: dark; }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Microsoft YaHei',sans-serif;font-size:14px}
+/* 自定义深色滚动条（Webkit） */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#4a5568}
+/* 复选框、单选框跟随主题色 */
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:14px;background:var(--accent);color:#fff}
 button:hover{background:var(--accent2)}
 button.ghost{background:var(--bg3);color:var(--text2)}
 button.ghost:hover{background:var(--border);color:var(--text)}
 button:disabled{opacity:.5;cursor:not-allowed}
+/* 高危按钮：全量重建 */
+button.danger{background:rgba(224,92,92,.18);color:var(--red);border:1px solid rgba(224,92,92,.4)}
+button.danger:hover{background:rgba(224,92,92,.32)}
 input,textarea,select{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:14px;width:100%}
 input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+/* 数字/短文本输入框不撑满宽度 */
+input.w-sm{width:120px}
+input.w-md{width:200px}
 .topbar{display:flex;align-items:center;gap:14px;padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--border)}
 .topbar .logo{font-weight:700;font-size:16px;color:var(--accent)}
 .topbar .kb{color:var(--text2);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -120,6 +135,7 @@ button.mini{padding:4px 10px;font-size:12px}
 .frow.hl{background:rgba(79,140,255,.16);box-shadow:inset 3px 0 0 var(--accent)}
 .frow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .frow .sz{color:var(--text3);font-size:12px;flex:0 0 auto}
+.frow-meta{display:flex;align-items:center;gap:6px;flex-shrink:0}
 /* 检索结果 */
 .res-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between}
 .folder-chips{gap:8px}
@@ -162,7 +178,8 @@ td.err{color:var(--red);font-size:12px}
 .failtable table{margin:0}
 .failtable thead th{position:sticky;top:0;background:var(--bg2);z-index:1}
 .failtable td.fp{max-width:460px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.failtable td.err{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.failtable td.err{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.failtable td.err.expanded{white-space:normal;word-break:break-all;max-width:none}
 .bar{height:14px;background:var(--bg3);border-radius:4px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
 .section-title{margin:22px 0 10px;font-size:15px;font-weight:600;color:var(--text)}
@@ -197,7 +214,13 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
   .filelist{width:100%}
   .fl-head{flex-wrap:wrap}
   .fl-head input{flex:1 1 100%}
+  /* 移动端文件行：状态徽章+大小换行到第二行 */
+  .frow{flex-wrap:wrap;gap:6px 10px}
+  .frow .nm{flex:1 1 100%}
+  .frow-meta{flex:1 1 100%;justify-content:flex-start}
   .res-head{flex-direction:column;align-items:flex-start;gap:8px}
+  /* 搜索结果头部范围徽章左对齐 */
+  .res-head > div{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   .folder-chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
   .folder-chips .chip{flex:0 0 auto;max-width:76vw}
   .hitpath .locate{margin-left:0}
@@ -377,8 +400,8 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
     </div>
     <div class="card">
       <h3>成本控制</h3>
-      <label class="fld"><span>每日 LLM 调用上限（缓存命中不计）</span><input id="c-limit" type="number"></label>
-      <label class="fld"><span>单次 token 预警阈值（超过则确认后执行）</span><input id="c-warn" type="number"></label>
+      <label class="fld"><span>每日 LLM 调用上限（缓存命中不计）</span><input id="c-limit" type="number" class="w-sm"></label>
+      <label class="fld"><span>单次 token 预警阈值（超过则确认后执行）</span><input id="c-warn" type="number" class="w-md"></label>
       <button onclick="saveCostCfg()">保存成本配置</button>
     </div>
     <div class="card">
@@ -387,7 +410,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
         <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:13px">
           <input type="checkbox" id="c-ocr" style="width:auto"> 启用 OCR
         </label>
-        <button class="ghost" onclick="saveOcrCfg()">保存</button>
+        <button onclick="saveOcrCfg()">保存</button>
         <span class="hint">默认关闭。开启后，在「检索」页的目录视图中对"无文字层"文件点「OCR」按钮，仅识别该文件，不批跑全库。</span>
       </div>
     </div>
@@ -395,7 +418,7 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
       <h3>索引管理</h3>
       <div class="row">
         <button class="ghost" onclick="doScan(false)">增量扫描</button>
-        <button class="ghost" onclick="doScan(true)">全量重建</button>
+        <button class="danger" onclick="confirmFullScan()">全量重建</button>
         <span class="hint" id="c-scanstat"></span>
       </div>
       <div class="hint">按 mtime+size 增量对比，只解析变化的文件（零重复解析成本）。</div>
@@ -463,6 +486,18 @@ const api = (p, opt) => {
 const esc = s => (s??'').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtSize = n => n>1048576 ? (n/1048576).toFixed(1)+' MB' : n>1024 ? (n/1024).toFixed(1)+' KB' : n+' B';
 const money = n => '¥' + (Math.ceil((Number(n)||0)*100 - 1e-9)/100).toFixed(2);
+// 数字千分位格式化
+const fmtNum = n => (Number(n)||0).toLocaleString('zh-CN');
+// ISO 时间格式化（去掉 T，转为可读格式）
+const fmtTime = s => {
+  if(!s) return '—';
+  try{
+    const d = new Date(s.includes('T') ? s : s.replace(' ','T'));
+    if(isNaN(d)) return s;
+    const pad = x => String(x).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }catch(_){ return s; }
+};
 let CURRENT_FILE_ID = null;
 
 // ---------- init ----------
@@ -480,7 +515,7 @@ boot();
 function refreshTop(){
   api('/admin/index/status').then(s=>{
     $('t-kbpath').textContent = $('t-kbpath').textContent.split('  [')[0] +
-      `  [索引 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped}]`;
+      `  [索引 ${fmtNum(s.total)} 文件 · ok ${fmtNum(s.ok)} · 失败 ${fmtNum(s.failed)} · 跳过 ${fmtNum(s.skipped)}${s.unsupported ? ' · 不支持 '+fmtNum(s.unsupported) : ''}]`;
   }).catch(()=>{});
   api('/admin/usage?days=1').then(d=>{
     const c = d.cost || {};
@@ -622,7 +657,9 @@ window.addEventListener('resize', () => updateBackTop(), {passive:true});
 // ---------- 检索 / 目录（统一入口） ----------
 let CUR_DIR = '';          // 当前目录（相对知识库根）
 let VIEW = 'browse';       // 'browse' | 'results'
-let LAST_Q = '', LAST_HITS = [];
+let LAST_Q = '', LAST_HITS = [], LAST_SCOPE = '';
+let SEARCH_LIMIT = 20;     // 当前已加载的 limit
+let SEARCH_TOTAL_HINT = 0; // 后端返回的 total_hits（若有）
 let SCOPE_ON = false;      // 是否「仅当前目录内检索」
 let BROWSE_DATA = null;    // 当前目录接口返回，供筛选与定位复用
 let BROWSE_SEQ = 0;        // 快速连点目录时丢弃过期响应
@@ -720,7 +757,7 @@ function onQueryInput(){
   $('s-clear').style.display = has ? '' : 'none';
 }
 function clearSearch(){
-  $('s-q').value = ''; LAST_Q = ''; LAST_HITS = [];
+  $('s-q').value = ''; LAST_Q = ''; LAST_HITS = []; LAST_SCOPE = ''; SEARCH_LIMIT = 20;
   $('s-results').innerHTML = ''; $('s-clear').style.display = 'none';
   showBrowseMode();
 }
@@ -737,15 +774,39 @@ function updateScopeHint(){
 }
 
 function hlSnippet(s){
-  return esc(s).replace(/»/g,'<mark>').replace(/«/g,'</mark>');
+  // 去掉 jieba 分词留下的多余空格。
+  // 策略：把所有 "非英文字母字符 + 一或多个空格 + 非英文字母字符" 中间的空格删掉。
+  // 这样 "第 8 , 170 号" → "第8,170号"，"发明 ( 设计 )" → "发明(设计)"，
+  // 但 "OpenAI GPT" / "CN patent" 等纯英文词间空格不受影响。
+  // 非英文字母字符集：CJK、数字、全/半角标点（含半角括号和逗号）
+  const nonLetter = String.raw`[^\x20-\x7e]|[\d，。；：！？、【】（）『』「」〔〕《》〈〉\u201c\u201d\u2018\u2019·～—…,\.\[\]\/\\%\(\)]`;
+  const rPat = new RegExp(`(${nonLetter})\\s+(?=${nonLetter}|[»«])`, 'g');
+  let t = (s || '').replace(rPat, '$1');
+  t = t.replace(rPat, '$1');   // 再跑一遍覆盖极端情况
+  return esc(t).replace(/»/g,'<mark>').replace(/«/g,'</mark>');
 }
 function anchorText(a){
   if(!a||!a.type) return '';
-  if(a.type==='pdf') return `PDF 第 ${a.page?a.page[0]:'?'}-${a.page?a.page[1]:'?'} 页`;
-  if(a.type==='xlsx') return `${a.sheet||'表'} 第 ${a.rows?a.rows[0]:'?'}-${a.rows?a.rows[1]:'?'} 行`;
-  if(a.type==='pptx') return `Slide ${a.slide?a.slide[0]:'?'}-${a.slide?a.slide[1]:'?'}`;
-  if(a.type==='docx') return `段落 ${a.para?a.para[0]:'?'}-${a.para?a.para[1]:'?'}`;
-  if(a.type==='text') return `行 ${a.lines?a.lines[0]:'?'}-${a.lines?a.lines[1]:'?'}`;
+  if(a.type==='pdf'){
+    const p0=a.page?a.page[0]:'?', p1=a.page?a.page[1]:'?';
+    return p0===p1 ? `PDF 第 ${p0} 页` : `PDF 第 ${p0}-${p1} 页`;
+  }
+  if(a.type==='xlsx'){
+    const r0=a.rows?a.rows[0]:'?', r1=a.rows?a.rows[1]:'?';
+    return r0===r1 ? `${a.sheet||'表'} 第 ${r0} 行` : `${a.sheet||'表'} 第 ${r0}-${r1} 行`;
+  }
+  if(a.type==='pptx'){
+    const s0=a.slide?a.slide[0]:'?', s1=a.slide?a.slide[1]:'?';
+    return s0===s1 ? `Slide ${s0}` : `Slide ${s0}-${s1}`;
+  }
+  if(a.type==='docx'){
+    const q0=a.para?a.para[0]:'?', q1=a.para?a.para[1]:'?';
+    return q0===q1 ? `段落 ${q0}` : `段落 ${q0}-${q1}`;
+  }
+  if(a.type==='text'){
+    const l0=a.lines?a.lines[0]:'?', l1=a.lines?a.lines[1]:'?';
+    return l0===l1 ? `行 ${l0}` : `行 ${l0}-${l1}`;
+  }
   if(a.type==='image'||a.filename_only) return '文件名索引';
   return '';
 }
@@ -773,21 +834,28 @@ function groupFolders(hits){
     .slice(0, 8);
 }
 
-async function doSearch(){
+async function doSearch(loadMore){
   const q = $('s-q').value.trim();
   if(!q){ clearSearch(); return; }
+  if(!loadMore){ SEARCH_LIMIT = 20; }  // 新搜索重置 limit
   LAST_Q = q;
   $('s-clear').style.display = '';
   showResultsMode();
-  $('s-results').innerHTML = '<div class="card"><span class="spin"></span>检索中…</div>';
+  if(!loadMore) $('s-results').innerHTML = '<div class="card"><span class="spin"></span>检索中…</div>';
   const scope = SCOPE_ON ? CUR_DIR : '';
+  LAST_SCOPE = scope;
   try{
-    const d = await api(`/search?q=${encodeURIComponent(q)}&limit=20&path=${encodeURIComponent(scope)}`);
+    const d = await api(`/search?q=${encodeURIComponent(q)}&limit=${SEARCH_LIMIT}&path=${encodeURIComponent(scope)}`);
     LAST_HITS = d.hits || [];
+    SEARCH_TOTAL_HINT = d.total_hits || 0;
     renderResults(q, d.scope || '');
   }catch(e){
     $('s-results').innerHTML = `<div class="card" style="color:var(--red)">${esc(e.message)}</div>`;
   }
+}
+async function loadMoreResults(){
+  SEARCH_LIMIT = Math.min(SEARCH_LIMIT + 20, 100);
+  await doSearch(true);
 }
 
 function renderResults(q, scope){
@@ -798,6 +866,14 @@ function renderResults(q, scope){
     btns.push(`<button class="ghost" onclick="backToBrowse()">浏览目录找找看</button>`);
     $('s-results').innerHTML = `
       <div class="card empty">
+        <div style="margin-bottom:14px">
+          <svg width="52" height="52" viewBox="0 0 52 52" fill="none" style="opacity:.3">
+            <circle cx="22" cy="22" r="13" stroke="#9aa3b2" stroke-width="3"/>
+            <line x1="31" y1="31" x2="45" y2="45" stroke="#9aa3b2" stroke-width="3" stroke-linecap="round"/>
+            <line x1="18" y1="22" x2="26" y2="22" stroke="#9aa3b2" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="22" y1="18" x2="22" y2="26" stroke="#9aa3b2" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
         <div class="big">没有找到「${esc(q)}」</div>
         <div class="hint">${scope
           ? `已限定在「${esc(baseName(scope))}」及其子目录内。`
@@ -813,10 +889,11 @@ function renderResults(q, scope){
   const more = new Set(groups.map(g=>dirOf(g.best.rel_path))).size - folders.length;
   // AND 无命中时后端会降级 OR，此时结果相关性明显更松，必须告诉用户
   const loose = LAST_HITS[0] && LAST_HITS[0].match_op === 'OR';
+  const canLoadMore = LAST_HITS.length >= SEARCH_LIMIT && SEARCH_LIMIT < 100;
   $('s-results').innerHTML = `
     <div class="card res-head">
-      <div>找到 <b>${groups.length}</b> 个文件 · ${LAST_HITS.length} 处命中 · 关键词「${esc(q)}」
-        <span class="badge ext" style="margin-left:8px">${scope ? '范围：' + esc(scope) : '范围：全部目录'}</span>
+      <div>找到 <b>${groups.length}</b> 个文件 · ${LAST_HITS.length} 处命中${canLoadMore ? ' <span style="color:var(--text3);font-size:12px">（已加载 '+SEARCH_LIMIT+' 条）</span>' : ''} · 关键词「${esc(q)}」
+        <span class="badge ext" style="margin-left:8px">${scope ? '范围：' + esc(baseName(scope)) + (scope ? ' 及子目录' : '') : '范围：全部目录'}</span>
       </div>
       <button class="ghost mini" onclick="backToBrowse()">← 返回目录浏览</button>
     </div>
@@ -854,7 +931,10 @@ function renderResults(q, scope){
           ${others.slice(0,4).map(o=>`<button class="ghost mini" onclick="showChunk(${o.chunk_id})">${esc(anchorText(o.anchor))||'片段 '+(o.chunk_id)}</button>`).join('')}
           ${others.length>4?`<span class="hint">另有 ${others.length-4} 处</span>`:''}
         </div>`:''}
-      </div>`;}).join('')}`;
+      </div>`;}).join('')}
+    ${canLoadMore ? `<div class="card" style="text-align:center;padding:16px 14px">
+        <button class="ghost" onclick="loadMoreResults()">加载更多 ↓（当前显示 ${SEARCH_LIMIT} 条，最多支持 100 条）</button>
+      </div>` : ''}`;
 }
 
 function searchAllDirs(){
@@ -888,7 +968,7 @@ async function doEstimate(){
   try{
     EST = await api('/analyze/estimate',{method:'POST', body:JSON.stringify({request_text:t, use_lite:$('a-lite').checked})});
     if(!EST.has_llm){ $('a-est').innerHTML = '⚠ 尚未配置 LLM API，请先在设置页配置。'; $('a-gobtn').disabled=true; return; }
-    $('a-est').innerHTML = `预计消耗约 <b>${EST.est_tokens}</b> tokens（${EST.top_chunk_count} 个资料片段）· 今日已用 ${EST.daily_used}` +
+    $('a-est').innerHTML = `预计消耗约 <b>${EST.est_tokens.toLocaleString('zh-CN')}</b> tokens（${EST.top_chunk_count} 个资料片段）· 预估费用约 <b>${money(EST.est_cost||0)}</b> · 今日已用 ${EST.daily_used}` +
       (EST.need_confirm ? ' · <span style="color:var(--yellow)">⚠ 超过预警阈值，请确认</span>' : '');
     $('a-gobtn').disabled = false;
   }catch(e){ $('a-est').innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
@@ -1017,9 +1097,11 @@ function paintFiles(){
   $('b-filelist').innerHTML = rows.length ? rows.map(f=>`
     <div class="frow" data-rel="${esc(f.rel_path)}"
          onclick="previewFile(${f.file_id??0},'${jsq(f.rel_path)}',${f.file_id??'null'})">
-      <span class="nm">📄 ${esc(f.name)}</span>${statusBadge(f.status)}
-      ${f.status==='skipped_no_text'&&f.file_id?`<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();doOcr(${f.file_id})">OCR</button>`:''}
-      <span class="sz">${fmtSize(f.size)}</span>
+      <span class="nm">📄 ${esc(f.name)}</span>
+      <span class="frow-meta">${statusBadge(f.status)}
+        ${f.status==='skipped_no_text'&&f.file_id?`<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();doOcr(${f.file_id})">OCR</button>`:''}
+        <span class="sz">${fmtSize(f.size)}</span>
+      </span>
     </div>`).join('')
     : `<div class="hint" style="padding:14px">${all.length
         ? '没有匹配「' + esc(kw) + '」的文件'
@@ -1054,9 +1136,11 @@ async function previewFile(fileId, relPath, hasId){
   try{
     const d = await api(`/file/chunks?file_id=${fileId}`);
     CURRENT_FILE_ID = fileId;
-    const body = d.chunks.length ? d.chunks.map(c=>
-      `【片段 ${c.chunk_index+1} · ${esc(anchorText(JSON.parse(c.anchor_json||'{}')))}】\n${c.content}`
-    ).join('\n\n———\n\n') : `（无文本片段。状态: ${d.file.status}）`;
+    const body = d.chunks.length ? d.chunks.map(c=>{
+      const loc = anchorText(JSON.parse(c.anchor_json||'{}'));
+      const label = loc ? `【片段 ${c.chunk_index+1} · ${loc}】` : `【片段 ${c.chunk_index+1}】`;
+      return `${label}\n${c.content}`;
+    }).join('\n\n———\n\n') : `（无文本片段。状态: ${d.file.status}）`;
     openModal(d.file.filename, body, fileId);
   }catch(e){ alert(e.message); }
 }
@@ -1128,15 +1212,26 @@ function loadSettings(){
   });
   api('/admin/index/status').then(s=>{
     $('c-scanstat').textContent =
-      `共 ${s.total} 文件 · ok ${s.ok} · 失败 ${s.failed} · 跳过 ${s.skipped} · 最后索引 ${s.last_scan_at||'—'}`;
+      `共 ${fmtNum(s.total)} 文件 · ok ${fmtNum(s.ok)} · 失败 ${fmtNum(s.failed)} · 跳过 ${fmtNum(s.skipped)}${s.unsupported ? ' · 不支持 '+fmtNum(s.unsupported) : ''} · 最后索引 ${fmtTime(s.last_scan_at)}`;
     loadFailures(s);   // 只用它拿各类计数，明细默认折叠不渲染
   });
   api('/admin/usage?days=7').then(d=>{
     const rows = d.usage, c = d.cost || {};
+    let totalCalls = 0, totalBilled = 0, totalCacheHits = 0, totalTokens = 0, totalCost = 0;
+    rows.forEach(u => {
+      totalCalls += (u.calls || 0);
+      totalBilled += (u.billed || 0);
+      totalCacheHits += (u.cache_hits || 0);
+      totalTokens += ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
+      totalCost += (u.cost || 0);
+    });
+    const summaryRow = rows.length > 1 ? `<tr style="font-weight:600;background:var(--bg3)">
+        <td>合计（近 7 日）</td><td>${totalCalls}</td><td>${totalBilled}</td><td>${totalCacheHits}</td>
+        <td>${totalTokens.toLocaleString('zh-CN')}</td><td>${money(totalCost)}</td></tr>` : '';
     $('c-usage').innerHTML = `<div class="hint" style="margin-bottom:8px">今日累计 ${money(c.today)}（${c.today_calls||0} 次）· 最近一次 ${money(c.last_call)}（${esc(c.last_call_model||'')}）· 单位 ¥ · 按 DeepSeek 官方峰谷定价估算</div>` +
       (rows.length ? `<table><tr><th>日期</th><th>调用</th><th>计费</th><th>缓存命中</th><th>tokens(入+出)</th><th>费用(¥)</th></tr>` +
       rows.map(u=>`<tr><td>${u.date}</td><td>${u.calls}</td><td>${u.billed}</td><td>${u.cache_hits}</td>
-        <td>${(u.prompt_tokens||0)+(u.completion_tokens||0)}</td><td>${money(u.cost||0)}</td></tr>`).join('') + '</table>'
+        <td>${((u.prompt_tokens||0)+(u.completion_tokens||0)).toLocaleString('zh-CN')}</td><td>${money(u.cost||0)}</td></tr>`).join('') + summaryRow + '</table>'
       : '<div class="hint">暂无调用记录</div>');
   });
 }
@@ -1164,6 +1259,10 @@ async function doScan(full){
     $('c-scanstat').textContent = `✓ 新增 ${rep.added} · 更新 ${rep.updated} · 未变 ${rep.unchanged} · 移除 ${rep.removed} · 失败 ${rep.failed} · 跳过 ${rep.skipped}`;
     refreshTop(); loadSettings();
   }catch(e){ $('c-scanstat').textContent = e.message; }
+}
+function confirmFullScan(){
+  if(!confirm('全量重建将清空当前索引并重新解析所有文件，耗时较长。\n\n确认继续？')) return;
+  doScan(true);
 }
 
 // ---------- 失败 / 跳过文件（默认折叠，点击才展开明细） ----------
@@ -1243,12 +1342,13 @@ function paintFailList(st, rows){
   const head = total > rows.length
     ? `共 ${total.toLocaleString()} 件，仅列出前 ${rows.length} 件（按路径排序）`
     : `共 ${rows.length} 件`;
-  box.innerHTML = `<div class="hint" style="margin-bottom:8px">${head} · ${FAIL_NOTE[st]}</div>
-    <div class="failtable"><table><thead><tr><th>文件</th><th>说明</th></tr></thead><tbody>` +
+  box.innerHTML = `<div class="hint" style="margin-bottom:8px">${head} · ${FAIL_NOTE[st]} <span style="color:var(--text3)">（点击说明文字可展开/收起完整错误）</span></div>
+    <div class="failtable"><table><thead><tr><th>文件</th><th>说明（点击展开）</th></tr></thead><tbody>` +
     rows.map(f=>{
       const msg = f.error_msg || FAIL_NOTE[st];
+      const msgCls = st==='failed' ? 'err' : '';
       return `<tr><td class="fp" title="${esc(f.rel_path)}">${esc(f.rel_path)}</td>` +
-             `<td class="err" title="${esc(msg)}">${esc(msg)}</td></tr>`;
+             `<td class="${msgCls}" style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="点击展开/收起完整内容" onclick="this.classList.toggle('expanded');this.style.whiteSpace=this.classList.contains('expanded')?'normal':'nowrap';this.style.maxWidth=this.classList.contains('expanded')?'none':'360px'">${esc(msg)}</td></tr>`;
     }).join('') +
     '</tbody></table></div>';
 }

@@ -53,9 +53,13 @@ def _scan_locked(kb_path: str, full: bool) -> dict[str, Any]:
             continue
         if fp.name.startswith("~$"):
             continue  # Office 临时锁文件
+        if fp.name.startswith("._"):
+            continue  # macOS 资源分支文件（AppleDouble），无实际内容
         rel_parts = fp.relative_to(root).parts
         if any(p in exclude_dirs for p in rel_parts):
             continue
+        if "__MACOSX" in rel_parts:
+            continue  # macOS 压缩包解压产生的元数据目录，整个跳过
         rel_path = "/".join(rel_parts)  # POSIX 分隔符
         ext = fp.suffix.lower()
         if not is_indexable(fp.name, ext, exclude_exts):
@@ -179,8 +183,13 @@ def preview_files(kb_path: str) -> dict[str, Any]:
     for fp in root.rglob("*"):
         if not fp.is_file():
             continue
-        if any(p in exclude_dirs for p in fp.relative_to(root).parts):
+        if fp.name.startswith("._"):
+            continue  # macOS 资源分支文件
+        rel_parts = fp.relative_to(root).parts
+        if any(p in exclude_dirs for p in rel_parts):
             continue
+        if "__MACOSX" in rel_parts:
+            continue  # macOS 元数据目录
         ext = fp.suffix.lower()
         if not is_indexable(fp.name, ext, []):
             continue
