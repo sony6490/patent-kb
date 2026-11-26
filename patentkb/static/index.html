@@ -1365,15 +1365,23 @@ async function saveTokenCfg(){
   $('c-tokensaved').innerHTML = '<span style="color:var(--green)">✓ 口令已更新</span>';
   setTimeout(()=>$('c-tokensaved').textContent='', 2000);
 }
+let REMOTE_SERVER_IP = '';
+let SERVER_PORT = 8322;
+
+function getRemoteBaseUrl(){
+  const h = window.location.hostname;
+  if ((h === '127.0.0.1' || h === 'localhost' || h === '::1') && REMOTE_SERVER_IP) {
+    return `${window.location.protocol}//${REMOTE_SERVER_IP}:${SERVER_PORT}`;
+  }
+  return window.location.origin;
+}
+
 function showShareLink(){
   const token = getAuthToken();
-  const url = new URL(window.location.href);
-  url.hash = '';
-  if (token) url.searchParams.set('token', token);
-  else url.searchParams.delete('token');
-  const shareText = url.toString();
+  const base = getRemoteBaseUrl();
+  const shareText = token ? `${base}/?token=${encodeURIComponent(token)}` : base;
   navigator.clipboard.writeText(shareText).then(()=>{
-    alert('已复制带口令的分享链接到剪贴板！\n\n' + shareText + '\n\n发送至手机或远程电脑打开即可自动登入。');
+    alert('已复制管理员直达链接到剪贴板！\n\n' + shareText + '\n\n（已自动采用 Tailscale 远程 IP，发送至手机或远程电脑打开即可自动登入）');
   }).catch(()=>{
     prompt('请复制以下直达链接并在手机或远程电脑打开：', shareText);
   });
@@ -1398,12 +1406,14 @@ async function loadDevices(){
   if(!container) return;
   try {
     const data = await api('/admin/devices');
+    REMOTE_SERVER_IP = data.remote_ip || '';
+    SERVER_PORT = data.port || 8322;
     const devs = data.devices || [];
     if (!devs.length) {
       container.innerHTML = '<div class="hint" style="padding:10px 0">暂无登记的远程设备。点击右上角「+ 授权新设备 / 员工」为员工分配专属访问直达链接。</div>';
       return;
     }
-    const curOrigin = window.location.origin;
+    const base = getRemoteBaseUrl();
     let html = `<table>
       <thead>
         <tr>
@@ -1420,7 +1430,7 @@ async function loadDevices(){
         ? '<span class="badge ok">● 正常授权</span>'
         : '<span class="badge err">✕ 已限制 / 离职</span>';
       const lastAct = d.last_active_at ? `${esc(d.last_active_at)} (${esc(d.last_ip||'未知IP')})` : '<span style="color:var(--text3)">尚未访问</span>';
-      const shareUrl = `${curOrigin}/?token=${encodeURIComponent(d.token)}`;
+      const shareUrl = `${base}/?token=${encodeURIComponent(d.token)}`;
       const toggleBtn = d.is_active
         ? `<button class="danger" style="padding:3px 8px;font-size:12px" onclick="toggleDevice(${d.id}, 0)" title="员工离职或设备丢失时直接吊销">限制访问 (离职)</button>`
         : `<button class="ghost" style="padding:3px 8px;font-size:12px;color:var(--green);border-color:var(--green)" onclick="toggleDevice(${d.id}, 1)" title="恢复该设备访问权限">恢复授权</button>`;
@@ -1443,7 +1453,7 @@ async function loadDevices(){
 
 function copyShareText(url, name){
   navigator.clipboard.writeText(url).then(()=>{
-    alert(`已复制 [${name}] 的专属直达链接！\n\n${url}\n\n发送至员工手机或电脑，打开即可免密自动登录。`);
+    alert(`已复制 [${name}] 的专属直达链接！\n\n${url}\n\n已自动采用远程访问 IP（如 Tailscale），发送至员工手机或电脑，在连接同一内网后打开即可免密自动登录。`);
   }).catch(()=>{
     prompt(`请复制 [${name}] 的专属直达链接：`, url);
   });
@@ -1465,7 +1475,8 @@ async function submitNewDevice(){
     toggleAddDeviceForm(false);
     await loadDevices();
     const token = res.device.token;
-    const shareUrl = `${window.location.origin}/?token=${encodeURIComponent(token)}`;
+    const base = getRemoteBaseUrl();
+    const shareUrl = `${base}/?token=${encodeURIComponent(token)}`;
     copyShareText(shareUrl, name);
   } catch(e) {
     $('dev-form-msg').textContent = e.message;

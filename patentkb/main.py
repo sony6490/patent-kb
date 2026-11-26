@@ -515,13 +515,35 @@ def get_chunk(chunk_id: int):
 
 # ---------- 远程设备管控与离职权限 API ----------
 
+def _detect_server_remote_ip() -> str:
+    """自动探测本机对外 IP：优先 Tailscale (100.x)，其次局域网 (192.168.x / 10.x / 172.x)"""
+    import socket
+    ts_ip = ""
+    lan_ip = ""
+    try:
+        for item in socket.getaddrinfo(socket.gethostname(), None):
+            ip = item[4][0]
+            if "." in ip and not ip.startswith("127."):
+                if ip.startswith("100."):
+                    ts_ip = ip
+                elif ip.startswith(("192.168.", "10.", "172.")):
+                    lan_ip = ip
+    except Exception:
+        pass
+    return ts_ip or lan_ip or ""
+
+
 @app.get("/api/admin/devices")
 def admin_list_devices():
     cfg = config.load_config()
     master = bool((cfg.get("server") or {}).get("auth_token", "").strip())
+    remote_ip = _detect_server_remote_ip()
+    port = (cfg.get("server") or {}).get("port", 8322)
     return {
         "devices": db.list_devices(),
         "master_token_configured": master,
+        "remote_ip": remote_ip,
+        "port": port,
     }
 
 
