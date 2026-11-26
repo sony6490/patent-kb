@@ -93,8 +93,42 @@ def estimate(request_text: str, use_lite: bool = False) -> dict[str, Any]:
     }
 
 
+def _repair_truncated_json(s: str) -> dict[str, Any] | None:
+    """尝试修复因 max_tokens 截断的 JSON 尾部。"""
+    s = s.strip()
+    if not s.startswith("{"):
+        return None
+    # 逐层闭合未完成的引号、方括号与花括号
+    # 先剥离尾部悬空的未闭合键值对片段
+    candidate = s
+    for _ in range(50):
+        # 尝试闭合当前层级
+        open_braces = candidate.count("{") - candidate.count("}")
+        open_brackets = candidate.count("[") - candidate.count("]")
+        quote_unclosed = candidate.count('"') % 2 == 1
+        tail = ""
+        if quote_unclosed:
+            tail += '"'
+        if open_brackets > 0:
+            tail += "]" * open_brackets
+        if open_braces > 0:
+            tail += "}" * open_braces
+        try:
+            d = json.loads(candidate + tail)
+            if isinstance(d, dict) and ("keywords" in d or "classifications" in d or "patent_query" in d):
+                return d
+        except json.JSONDecodeError:
+            pass
+        # 逐步丢掉末尾的一个字符/逗号再试
+        last_comma = candidate.rfind(",")
+        if last_comma <= 0:
+            break
+        candidate = candidate[:last_comma].rstrip()
+    return None
+
+
 def _extract_json(text: str) -> dict[str, Any] | None:
-    """从 LLM 输出中提取 JSON 对象（容忍 markdown 代码块与前后废话）。"""
+    """从 LLM 输出中提取 JSON 对象（容忍 markdown 代码块、前后废话及轻度截断）。"""
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
@@ -108,7 +142,13 @@ def _extract_json(text: str) -> dict[str, Any] | None:
         try:
             return json.loads(m.group(0))
         except json.JSONDecodeError:
-            return None
+            pass
+    # 尝试从首个 { 开始修复可能被 token 上限截断的尾部
+    start = text.find("{")
+    if start >= 0:
+        repaired = _repair_truncated_json(text[start:])
+        if repaired is not None:
+            return repaired
     return None
 
 
