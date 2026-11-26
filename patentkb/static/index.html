@@ -625,6 +625,10 @@ async function boot(){
   $('wizard').style.display='none'; $('main').style.display='block';
   $('t-kbpath').textContent = '知识库: ' + (st.kb_path || '');
   refreshTop(); loadBrowse('');   // 目录视图即默认首页
+  if (window.location.hash === '#settings') {
+    const btn = document.querySelector('.tab[data-p="p-settings"]');
+    if (btn) { switchTab('p-settings', btn); loadSettings(); }
+  }
 }
 boot();
 function refreshTop(){
