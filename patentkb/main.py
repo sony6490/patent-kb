@@ -1,5 +1,6 @@
 """FastAPI 应用组装与全部路由。"""
 import json
+import secrets
 import subprocess
 import warnings
 from pathlib import Path
@@ -17,24 +18,64 @@ app = FastAPI(title="patent-kb")
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-# ---------- Phase 2：auth_token 中间件（本地免密白名单 + 远程双通道鉴权） ----------
+# ---------- Phase 2：auth_token 中间件（本地免密白名单 + 远程设备管控与离职注销） ----------
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # 本地回环访问（127.0.0.1 / localhost / ::1）拥有最高优先级，永久免密白名单放行
+    # 本地回环访问（127.0.0.1 / localhost / ::1 / testclient）拥有最高优先级，永久免密白名单放行
     client_host = request.client.host if request.client else ""
     if client_host in ("127.0.0.1", "localhost", "::1", "testclient"):
         return await call_next(request)
 
+    # 仅针对 /api 接口做鉴权管控
+    if not request.url.path.startswith("/api"):
+        return await call_next(request)
+
     cfg = config.load_config()
-    token = (cfg.get("server") or {}).get("auth_token", "")
-    if token and request.url.path.startswith("/api"):
-        auth_header = request.headers.get("Authorization", "")
-        bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
-        query_token = request.query_params.get("token", "")
-        # 远程访问：Header 认证或 Query 认证（方便手机扫码/URL 直达）
-        if bearer_token != token and query_token != token:
-            return JSONResponse({"detail": "未授权，请提供正确的访问口令"}, status_code=401)
+    master_token = (cfg.get("server") or {}).get("auth_token", "").strip()
+
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+    query_token = request.query_params.get("token", "").strip()
+    token = bearer_token or query_token
+
+    # 1. 超级管理员主口令直通
+    if master_token and token == master_token:
+        return await call_next(request)
+
+    # 2. 设备专属 Token 校验与管控
+    if token:
+        dev = db.get_device_by_token(token)
+        if dev:
+            # 离职 / 禁用状态拦截
+            if dev.get("is_active") == 0:
+                return JSONResponse(
+                    {
+                        "detail": f"该设备（{dev.get('device_name')}）访问权限已被管理员限制或离职注销，禁止访问知识库",
+                        "revoked": True,
+                    },
+                    status_code=403,
+                )
+            # 针对管理配置等高危路由，限制普通员工/设备权限（只有本机或主口令能改配置）
+            if (
+                request.url.path.startswith("/api/admin/devices")
+                or request.url.path.startswith("/api/config")
+                or request.url.path in ("/api/kb/switch", "/api/admin/index/rebuild-all")
+            ):
+                return JSONResponse(
+                    {"detail": "该设备仅具有知识库查询权限，无权访问监管后台设置"},
+                    status_code=403,
+                )
+            # 记录最后活跃时间和 IP
+            db.touch_device_activity(dev["id"], client_host)
+            return await call_next(request)
+        # Token 存在但数据库中未查到
+        return JSONResponse({"detail": "未授权，设备凭证无效或已被管理员移除"}, status_code=401)
+
+    # 3. 未携带 Token：检查是否已配置主口令或存在设备
+    if master_token or db.count_devices() > 0:
+        return JSONResponse({"detail": "未授权，请提供正确的访问口令"}, status_code=401)
+
     return await call_next(request)
 
 
@@ -470,6 +511,47 @@ def get_chunk(chunk_id: int):
     except Exception:
         r["anchor"] = {}
     return r
+
+
+# ---------- 远程设备管控与离职权限 API ----------
+
+@app.get("/api/admin/devices")
+def admin_list_devices():
+    cfg = config.load_config()
+    master = bool((cfg.get("server") or {}).get("auth_token", "").strip())
+    return {
+        "devices": db.list_devices(),
+        "master_token_configured": master,
+    }
+
+
+@app.post("/api/admin/devices")
+def admin_add_device(body: dict):
+    name = str(body.get("device_name", "")).strip()
+    if not name:
+        raise HTTPException(400, "请输入设备或员工标识")
+    token = str(body.get("token", "")).strip()
+    if not token:
+        token = "pkb_" + secrets.token_hex(8)
+    remark = str(body.get("remark", "")).strip()
+    try:
+        dev = db.add_device(name, token, remark)
+        return {"device": dev}
+    except Exception as e:
+        raise HTTPException(400, f"添加失败: {e}")
+
+
+@app.post("/api/admin/devices/{device_id}/toggle")
+def admin_toggle_device(device_id: int, body: dict):
+    is_active = 1 if body.get("is_active", 1) else 0
+    db.set_device_active(device_id, is_active)
+    return {"ok": True, "id": device_id, "is_active": is_active}
+
+
+@app.delete("/api/admin/devices/{device_id}")
+def admin_delete_device(device_id: int):
+    db.delete_device(device_id)
+    return {"ok": True, "id": device_id}
 
 
 # ---------- 静态前端与入口 ----------

@@ -8,7 +8,7 @@ from . import config
 
 _conn: sqlite3.Connection | None = None       # 写连接：仅由 transaction()/x() 在 _lock 内使用
 _read_conn: sqlite3.Connection | None = None  # 读连接：独立于写连接，WAL 下读已提交快照，不被长事务扫描阻塞
-_lock = threading.Lock()
+_lock = threading.RLock()
 _kb_path: str = ""
 
 SCHEMA_VERSION = 2
@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS usage_log (
   cost REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(ts);
+
+CREATE TABLE IF NOT EXISTS auth_devices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_name TEXT NOT NULL,
+  token TEXT UNIQUE NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_active_at TEXT,
+  last_ip TEXT,
+  remark TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_devices_token ON auth_devices(token);
 """
 
 
@@ -85,8 +97,9 @@ def init(kb_path: str) -> sqlite3.Connection:
         if _read_conn is not None:
             _read_conn.close()
 
-        conn = sqlite3.connect(db_file, check_same_thread=False)
+        conn = sqlite3.connect(db_file, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(_SCHEMA)
@@ -187,3 +200,86 @@ def reset() -> None:
             _read_conn.close()
             _read_conn = None
         _kb_path = ""
+
+
+# ---------- 远程设备与员工权限管控 ----------
+
+def list_devices() -> list[dict[str, Any]]:
+    """获取所有已登记的授权设备列表（按添加倒序）。"""
+    try:
+        return q(
+            "SELECT id, device_name, token, is_active, created_at, last_active_at, last_ip, remark "
+            "FROM auth_devices ORDER BY id DESC"
+        )
+    except Exception:
+        return []
+
+
+def get_device_by_token(token: str) -> dict[str, Any] | None:
+    """根据口令获取设备信息；库未就绪或未找到时返回 None。"""
+    if not token:
+        return None
+    try:
+        rows = q(
+            "SELECT id, device_name, token, is_active, created_at, last_active_at, last_ip, remark "
+            "FROM auth_devices WHERE token = ?",
+            (token.strip(),)
+        )
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def add_device(device_name: str, token: str, remark: str = "") -> dict[str, Any]:
+    """新增授权设备/员工记录。"""
+    import datetime
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with write_lock():
+        cur = x(
+            "INSERT INTO auth_devices (device_name, token, is_active, created_at, remark) "
+            "VALUES (?, ?, 1, ?, ?)",
+            (device_name.strip(), token.strip(), now, (remark or "").strip())
+        )
+        dev_id = cur.lastrowid
+    rows = q(
+        "SELECT id, device_name, token, is_active, created_at, last_active_at, last_ip, remark "
+        "FROM auth_devices WHERE id = ?",
+        (dev_id,)
+    )
+    return rows[0]
+
+
+def set_device_active(device_id: int, is_active: int) -> bool:
+    """启用或禁用（离职吊销）指定设备。"""
+    with write_lock():
+        x("UPDATE auth_devices SET is_active = ? WHERE id = ?", (1 if is_active else 0, device_id))
+    return True
+
+
+def delete_device(device_id: int) -> bool:
+    """删除设备授权记录。"""
+    with write_lock():
+        x("DELETE FROM auth_devices WHERE id = ?", (device_id,))
+    return True
+
+
+def touch_device_activity(device_id: int, client_ip: str) -> None:
+    """更新设备最后活跃时间与最后请求 IP。"""
+    import datetime
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with write_lock():
+            x("UPDATE auth_devices SET last_active_at = ?, last_ip = ? WHERE id = ?",
+              (now, client_ip, device_id))
+    except Exception:
+        pass
+
+
+def count_devices() -> int:
+    """统计登记的设备总数。"""
+    try:
+        rows = q("SELECT COUNT(*) as c FROM auth_devices")
+        return rows[0]["c"] if rows else 0
+    except Exception:
+        return 0
+

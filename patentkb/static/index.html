@@ -388,15 +388,48 @@ mark{background:rgba(79,140,255,.25);color:var(--accent);border-radius:2px;paddi
     </div>
     <div class="card">
       <h3>访问安全与远程连接（Phase 2）</h3>
-      <label class="fld"><span>远程访问口令 Auth Token（留空表示局域网/本机免密）</span>
-        <input id="c-token" type="password" placeholder="设置后跨设备/外网访问需校验口令">
+      <label class="fld"><span>管理员全局口令 Master Auth Token（可选，设置后拥有全部后台权限）</span>
+        <input id="c-token" type="password" placeholder="留空表示仅使用下方设备列表鉴权">
       </label>
       <div class="row" style="margin-bottom:8px">
-        <button onclick="saveTokenCfg()">保存口令配置</button>
-        <button class="ghost" onclick="showShareLink()">获取本设备分享链接</button>
+        <button onclick="saveTokenCfg()">保存主口令</button>
+        <button class="ghost" onclick="showShareLink()">获取管理员直达链接</button>
         <span class="hint" id="c-tokensaved" style="margin-left:10px"></span>
       </div>
-      <div class="hint">搭配 Tailscale 内网穿透使用：设置口令后在手机或远程电脑打开分享链接即可免密自动登录。</div>
+      <div class="hint">搭配 Tailscale 内网穿透使用：本机（127.0.0.1）受永久免密白名单保护，任何配置调整均不会影响本机。</div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 14px">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-weight:600;font-size:14px;color:var(--text)">远程设备与员工权限管控</div>
+          <div class="hint" style="margin:2px 0 0">为每位员工/设备生成独立凭证。员工离职时，一键点击「限制访问」立即切断该设备数据库权限。</div>
+        </div>
+        <button class="ghost" onclick="toggleAddDeviceForm()">+ 授权新设备 / 员工</button>
+      </div>
+
+      <!-- 添加设备表单（默认折叠） -->
+      <div id="c-add-dev-form" style="display:none;background:var(--bg3);padding:14px;border-radius:8px;border:1px solid var(--border);margin-bottom:14px">
+        <div style="font-weight:600;margin-bottom:8px;font-size:13px">登记新设备或员工</div>
+        <div class="row" style="gap:10px;margin-bottom:10px;flex-wrap:wrap">
+          <label class="fld" style="flex:1;min-width:200px;margin:0"><span>员工 / 设备标识（如：张三-iPhone / 李四-外派电脑）</span>
+            <input id="dev-new-name" placeholder="请输入姓名或设备备注">
+          </label>
+          <label class="fld" style="flex:1;min-width:200px;margin:0"><span>备注说明（可选，如：专利分析部）</span>
+            <input id="dev-new-remark" placeholder="岗位或期限说明">
+          </label>
+        </div>
+        <div class="row" style="gap:8px">
+          <button onclick="submitNewDevice()">生成并授权专属链接</button>
+          <button class="ghost" onclick="toggleAddDeviceForm(false)">取消</button>
+          <span id="dev-form-msg" class="hint" style="color:var(--red);margin-left:8px"></span>
+        </div>
+      </div>
+
+      <!-- 设备列表表格容器 -->
+      <div id="c-device-list-container">
+        <div class="hint">加载设备列表中...</div>
+      </div>
     </div>
     <div class="card">
       <h3>大模型 API</h3>
@@ -546,6 +579,12 @@ const api = (p, opt) => {
     if (r.status === 401) {
       showAuthModal('访问未授权或口令错误，请重新输入');
       throw new Error('未授权');
+    }
+    if (r.status === 403) {
+      const d = await r.json().catch(() => ({}));
+      const msg = d.detail || '该设备已被限制访问或离职注销，禁止访问知识库';
+      showAuthModal(msg);
+      throw new Error(msg);
     }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -1312,6 +1351,7 @@ function loadSettings(){
         <td>${((u.prompt_tokens||0)+(u.completion_tokens||0)).toLocaleString('zh-CN')}</td><td>${money(u.cost||0)}</td></tr>`).join('') + summaryRow + '</table>'
       : '<div class="hint">暂无调用记录</div>');
   });
+  loadDevices();
 }
 async function saveTokenCfg(){
   const val = $('c-token').value.trim();
@@ -1333,6 +1373,123 @@ function showShareLink(){
   }).catch(()=>{
     prompt('请复制以下直达链接并在手机或远程电脑打开：', shareText);
   });
+}
+
+// ---------- 远程设备与离职管控 UI 逻辑 ----------
+function toggleAddDeviceForm(show){
+  const el = $('c-add-dev-form');
+  if(!el) return;
+  const isShow = show !== undefined ? show : el.style.display === 'none';
+  el.style.display = isShow ? 'block' : 'none';
+  $('dev-form-msg').textContent = '';
+  if (isShow) {
+    $('dev-new-name').value = '';
+    $('dev-new-remark').value = '';
+    $('dev-new-name').focus();
+  }
+}
+
+async function loadDevices(){
+  const container = $('c-device-list-container');
+  if(!container) return;
+  try {
+    const data = await api('/admin/devices');
+    const devs = data.devices || [];
+    if (!devs.length) {
+      container.innerHTML = '<div class="hint" style="padding:10px 0">暂无登记的远程设备。点击右上角「+ 授权新设备 / 员工」为员工分配专属访问直达链接。</div>';
+      return;
+    }
+    const curOrigin = window.location.origin;
+    let html = `<table>
+      <thead>
+        <tr>
+          <th>员工 / 设备名称</th>
+          <th>授权状态</th>
+          <th>最后活跃时间 · 访问IP</th>
+          <th>专属直达链接</th>
+          <th style="text-align:right">管控操作</th>
+        </tr>
+      </thead>
+      <tbody>`;
+    for(const d of devs){
+      const statusBadge = d.is_active
+        ? '<span class="badge ok">● 正常授权</span>'
+        : '<span class="badge err">✕ 已限制 / 离职</span>';
+      const lastAct = d.last_active_at ? `${esc(d.last_active_at)} (${esc(d.last_ip||'未知IP')})` : '<span style="color:var(--text3)">尚未访问</span>';
+      const shareUrl = `${curOrigin}/?token=${encodeURIComponent(d.token)}`;
+      const toggleBtn = d.is_active
+        ? `<button class="danger" style="padding:3px 8px;font-size:12px" onclick="toggleDevice(${d.id}, 0)" title="员工离职或设备丢失时直接吊销">限制访问 (离职)</button>`
+        : `<button class="ghost" style="padding:3px 8px;font-size:12px;color:var(--green);border-color:var(--green)" onclick="toggleDevice(${d.id}, 1)" title="恢复该设备访问权限">恢复授权</button>`;
+      const delBtn = `<button class="ghost text-btn" style="padding:3px 6px;font-size:12px;color:var(--red);margin-left:6px" onclick="deleteDevice(${d.id})" title="彻底删除此设备记录">删除</button>`;
+      const copyBtn = `<button class="ghost" style="padding:3px 8px;font-size:12px" onclick="copyShareText('${shareUrl}', '${esc(d.device_name)}')">复制链接</button>`;
+      html += `<tr>
+        <td><b>${esc(d.device_name)}</b>${d.remark ? `<div class="hint" style="margin:2px 0 0 0">${esc(d.remark)}</div>` : ''}</td>
+        <td>${statusBadge}</td>
+        <td style="font-size:12px">${lastAct}</td>
+        <td>${copyBtn}</td>
+        <td style="text-align:right">${toggleBtn}${delBtn}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--red);padding:6px 0">${esc(e.message)}</div>`;
+  }
+}
+
+function copyShareText(url, name){
+  navigator.clipboard.writeText(url).then(()=>{
+    alert(`已复制 [${name}] 的专属直达链接！\n\n${url}\n\n发送至员工手机或电脑，打开即可免密自动登录。`);
+  }).catch(()=>{
+    prompt(`请复制 [${name}] 的专属直达链接：`, url);
+  });
+}
+
+async function submitNewDevice(){
+  const name = $('dev-new-name').value.trim();
+  const remark = $('dev-new-remark').value.trim();
+  if(!name){
+    $('dev-form-msg').textContent = '请输入员工或设备标识';
+    return;
+  }
+  $('dev-form-msg').textContent = '';
+  try {
+    const res = await api('/admin/devices', {
+      method: 'POST',
+      body: JSON.stringify({device_name: name, remark: remark})
+    });
+    toggleAddDeviceForm(false);
+    await loadDevices();
+    const token = res.device.token;
+    const shareUrl = `${window.location.origin}/?token=${encodeURIComponent(token)}`;
+    copyShareText(shareUrl, name);
+  } catch(e) {
+    $('dev-form-msg').textContent = e.message;
+  }
+}
+
+async function toggleDevice(id, active){
+  const actionText = active ? '恢复此设备的知识库访问权限' : '限制此设备对数据库的访问（针对离职或丢失设备）';
+  if(!confirm(`确定要${actionText}吗？`)) return;
+  try {
+    await api(`/admin/devices/${id}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({is_active: active})
+    });
+    await loadDevices();
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+async function deleteDevice(id){
+  if(!confirm('确定彻底删除该设备记录？删除后该设备将无法凭旧链接或旧Token访问。')) return;
+  try {
+    await api(`/admin/devices/${id}`, {method: 'DELETE'});
+    await loadDevices();
+  } catch(e) {
+    alert(e.message);
+  }
 }
 async function saveLlmCfg(){
   const patch = {llm:{base_url:$('c-baseurl').value.trim(), model:$('c-model').value.trim(), lite_model:$('c-litemodel').value.trim()}};
